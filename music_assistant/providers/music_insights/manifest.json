@@ -1,0 +1,9 @@
+{
+  "type": "music",
+  "domain": "music_insights",
+  "name": "Music Insights",
+  "description": "Short description of the player provider goes here",
+  "codeowners": ["@ztripez"],
+  "requirements": ["chromadb","transformers","torch","torchaudio","accelerate","bitsandbytes"],
+  "documentation": "Link to the documentation on the music-assistant.io helppage (may be added later)."
+}
