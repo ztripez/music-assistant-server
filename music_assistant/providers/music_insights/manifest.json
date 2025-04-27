@@ -2,7 +2,7 @@
   "type": "music",
   "domain": "music_insights",
   "name": "Music Insights",
-  "description": "Short description of the player provider goes here",
+  "description": "Provides music recommendations, similar track suggestions, and semantic search capabilities based on audio embeddings and user interactions.",
   "codeowners": ["@ztripez"],
   "requirements": ["chromadb","transformers","torch","torchaudio","accelerate","bitsandbytes"],
   "documentation": "Link to the documentation on the music-assistant.io helppage (may be added later)."

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import os
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, cast
@@ -24,16 +23,14 @@ from music_assistant_models.media_items import (
 )
 from music_assistant_models.unique_list import UniqueList
 
-from music_assistant.helpers.scrobbler import ScrobblerHelper
 from music_assistant.models.music_provider import MusicProvider
 
 # Import the new ChromaEmbeddings and RecommendationEngine classes
 from .chroma_embeddings import ChromaEmbeddings
-from .recommendations import RecommendationEngine
+from .recommendations import InsightScrobbler, RecommendationEngine
 
 if TYPE_CHECKING:
     from music_assistant_models.event import MassEvent
-    from music_assistant_models.playback_progress_report import MediaItemPlaybackProgressReport
     from music_assistant_models.provider import ProviderManifest
 
     from music_assistant.mass import MusicAssistant
@@ -96,10 +93,14 @@ async def get_config_entries(
             label="CLAP embedding model",
             default_value=preset_defaults.get("model_name", "laion/clap-htsat-fused"),
             description=(
-                "The CLAP embedding model to use. **Changing this rebuilds all vectors and retrains any taste profiles.**\n"
-                "‣ `laion/clap-htsat-fused` (≈155 M) - good middle-ground; ~3 GB VRAM or CPU-only ok."
-                "‣ `hf-internal-testing/tiny-clap-htsat-unfused` (30 M) - recommended for Raspberry Pi and laptops without CUDA.\n"
-                "‣ `laion/larger_clap_music` (≈200 M) - music-tuned, needs a beefier GPU or fast CPU."
+                "The CLAP embedding model to use. **Changing this rebuilds all vectors and "
+                "retrains any taste profiles.**\n"
+                "‣ `laion/clap-htsat-fused` (≈155 M) - good middle-ground; ~3 GB VRAM or "
+                "CPU-only ok.\n"
+                "‣ `hf-internal-testing/tiny-clap-htsat-unfused` (30 M) - recommended for "
+                "Raspberry Pi and laptops without CUDA.\n"
+                "‣ `laion/larger_clap_music` (≈200 M) - music-tuned, "
+                "needs a beefier GPU or fast CPU."
             ),
             required=True,
         ),
@@ -121,7 +122,8 @@ async def get_config_entries(
             description=(
                 "Produces the most accurate recommendations and similar-track matching, "
                 "but **currently works only with local providers**. "
-                "Training can take considerable time; a CUDA-enabled device is strongly recommended. "
+                "Training can take considerable time; "
+                "a CUDA-enabled device is strongly recommended."
                 "(Note: full audio-feature training is a placeholder and not yet implemented.)"
             ),
             required=False,
@@ -140,41 +142,32 @@ async def get_config_entries(
             ),
             required=True,
         ),
+        ConfigEntry(
+            key="enable_cuda",
+            type=ConfigEntryType.BOOLEAN,
+            label="Enable GPU",
+            default_value=True,
+            description="Enable CUDA acceleration",
+            required=True,
+            hidden=not torch.cuda.is_available(),
+        ),
     ]
-
-    if torch.cuda.is_available():
-        entries.append(
-            ConfigEntry(
-                key="enable_cuda",
-                type=ConfigEntryType.BOOLEAN,
-                label="Enable GPU",
-                default_value=True,
-                description="Enable CUDA acceleration",
-                required=False,
-            )
-        )
 
     return tuple(entries)
 
 
 class MusicInsightProvider(MusicProvider):
     """
-    Example/demo Music provider.
+    Provider for Music Insights based on embeddings and recommendations.
 
-    Note that this is always subclassed from MusicProvider,
-    which in turn is a subclass of the generic Provider model.
-
-    The base implementation already takes care of some convenience methods,
-    such as the mass object and the logger. Take a look at the base class
-    for more information on what is available.
-
-    Just like with any other subclass, make sure that if you override
-    any of the default methods (such as __init__), you call the super() method.
-    In most cases its not needed to override any of the builtin methods and you only
-    implement the abc methods with your actual implementation.
+    This provider uses ChromaDB and CLAP models to generate audio and text
+    embeddings for tracks in the library. It provides features like:
+    - Semantic search for tracks based on text queries.
+    - Finding similar tracks based on audio embeddings.
+    - Generating recommendations based on user listening history and track similarity.
     """
 
-    _on_unload: list[Callable[[], None]]
+    _on_unload: list[Callable[[], None]] = []
 
     def __init__(
         self, mass: MusicAssistant, manifest: ProviderManifest, config: ProviderConfig
@@ -183,17 +176,24 @@ class MusicInsightProvider(MusicProvider):
         super().__init__(mass, manifest, config)
 
     async def handle_async_init(self) -> None:
-        """Async init of the provider."""
+        """
+        Handle asynchronous initialization of the provider.
+
+        Sets up ChromaEmbeddings, RecommendationEngine, checks for config changes,
+        and subscribes to relevant events.
+        """
         current_model_name = cast("str", self.config.get_value("model_name") or "")
         current_window_size = cast("int", self.config.get_value("window_size") or 0)
         enable_cuda = cast("bool", self.config.get_value("enable_cuda") or False)
 
         self.chroma_embeddings = ChromaEmbeddings(
             self.mass,
+            self.logger,
             model_name=current_model_name,
             audio_window_s=current_window_size,
             enable_cuda=enable_cuda,
         )
+        await self.chroma_embeddings.async_init()
         self.recommendation_engine = RecommendationEngine(self.mass, self.chroma_embeddings)
         self._library_update_listener: Callable[[], None] | None = None
         self._previous_config_values: dict[str, Any] = {}
@@ -227,7 +227,14 @@ class MusicInsightProvider(MusicProvider):
         self.logger.info("Subscribed to player events for recommendations.")
 
     async def handle_library_update(self, event: MassEvent) -> None:
-        """Handle library updates to keep embeddings current."""
+        """
+        Handle library update events (add, update, delete) for tracks.
+
+        Upserts or removes track embeddings in ChromaDB accordingly.
+
+        Args:
+            event: The MassEvent containing track data and event type.
+        """
         if not isinstance(event.data, Track):
             return
         track: Track = event.data
@@ -264,14 +271,33 @@ class MusicInsightProvider(MusicProvider):
     async def search(
         self, search_query: str, media_types: list[MediaType], limit: int = 5
     ) -> SearchResults:
-        """Search for tracks using text embeddings."""
+        """
+        Perform a search for tracks based on a text query using embeddings.
+
+        Args:
+            search_query: The text query to search for.
+            media_types: A list of media types to include in the search (only TRACK is supported).
+            limit: The maximum number of results to return.
+
+        Returns:
+            SearchResults containing the found tracks.
+        """
         tracks: UniqueList[Track] = UniqueList()
         if MediaType.TRACK in media_types:
             tracks = await self.chroma_embeddings.search_tracks(search_query, limit=limit)
         return SearchResults(tracks=tracks)
 
     async def get_similar_tracks(self, prov_track_id: str, limit: int = 25) -> list[Track]:
-        """Get tracks similar to the given track ID using embeddings."""
+        """
+        Get tracks similar to a given track ID using embeddings.
+
+        Args:
+            prov_track_id: The provider-specific ID of the track to find similar tracks for.
+            limit: The maximum number of similar tracks to return.
+
+        Returns:
+            A list of similar Track objects.
+        """
         return await self.chroma_embeddings.get_similar_tracks(prov_track_id, limit=limit)
 
     async def recommendations(self) -> list[RecommendationFolder]:
@@ -284,7 +310,12 @@ class MusicInsightProvider(MusicProvider):
         return await self.recommendation_engine.get_recommendations()
 
     async def _rebuild_embeddings(self) -> None:
-        """Perform a full rebuild of track embeddings."""
+        """
+        Perform a full rebuild of all track embeddings in the library.
+
+        Cleans up existing embeddings and re-embeds all library tracks.
+        This is typically triggered by configuration changes affecting embeddings.
+        """
         self.logger.info("Starting full embedding rebuild...")
         count = 0
         try:
@@ -310,17 +341,3 @@ class MusicInsightProvider(MusicProvider):
             self.logger.info("Completed full embedding rebuild. %d tracks processed.", count)
         except Exception as e:
             self.logger.error("Failed during embedding rebuild process: %s", str(e), exc_info=e)
-
-
-class InsightScrobbler(ScrobblerHelper):
-    """Handles the event handling."""
-
-    def __init__(self, logger: logging.Logger, rec: RecommendationEngine) -> None:
-        """Initialize."""
-        super().__init__(logger)
-
-    async def _update_now_playing(self, report: MediaItemPlaybackProgressReport) -> None:
-        pass
-
-    async def _scrobble(self, report: MediaItemPlaybackProgressReport) -> None:
-        pass
