@@ -11,7 +11,7 @@ import numpy as np
 import torch
 from music_assistant_models.media_items import Track
 from music_assistant_models.unique_list import UniqueList
-from transformers import BitsAndBytesConfig  # type: ignore[attr-defined]
+from transformers import BitsAndBytesConfig
 from transformers.models.clap import ClapConfig, ClapModel, ClapProcessor
 
 from music_assistant.helpers.util import LOGGER
@@ -39,19 +39,8 @@ class ChromaEmbeddings:
         self.enable_cuda = enable_cuda
         self.audio_window_s = audio_window_s
         self.audio_hop_s = audio_hop_s
+        self.model_name = model_name
         self.logger = LOGGER.getChild("music_insights.chroma")
-
-        clap_config = ClapConfig.from_pretrained(model_name)
-        if enable_cuda and torch.cuda.is_available():
-            self.model = ClapModel.from_pretrained(model_name, config=clap_config).half().to("cuda")
-        else:
-            qconf: BitsAndBytesConfig = BitsAndBytesConfig(load_in_8bit=True)  # type: ignore[no-untyped-call]
-            self.model = ClapModel.from_pretrained(
-                model_name, config=clap_config, quantization_config=qconf
-            )
-        self.model.eval()
-        self.processor = ClapProcessor.from_pretrained(model_name)
-
         db_path = os.path.join(mass.storage_path, "music_insights")
         self.chromadb_client = chromadb.PersistentClient(path=db_path)
         self.track_collection = self.chromadb_client.get_or_create_collection(
@@ -60,6 +49,23 @@ class ChromaEmbeddings:
         self.user_collection = self.chromadb_client.get_or_create_collection(
             USER_INTERACTION_COLLECTION, metadata={"hnsw:space": "cosine"}
         )
+
+    async def async_init(self) -> None:
+        await self.mass.create_task(self._setup_models())
+
+    def _setup_models(self) -> None:
+        clap_config = ClapConfig.from_pretrained(self.model_name)
+        if self.enable_cuda and torch.cuda.is_available():
+            self.model = (
+                ClapModel.from_pretrained(self.model_name, config=clap_config).half().to("cuda")
+            )
+        else:
+            qconf: BitsAndBytesConfig = BitsAndBytesConfig(load_in_8bit=True)
+            self.model = ClapModel.from_pretrained(
+                self.model_name, config=clap_config, quantization_config=qconf
+            )
+        self.model.eval()
+        self.processor = ClapProcessor.from_pretrained(self.model_name)
 
     async def embeddings_from_str(self, input_str: str) -> np.ndarray[Any, Any]:
         """Generate embeddings for a given text string."""
