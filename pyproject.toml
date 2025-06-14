@@ -55,6 +55,14 @@ test = [
   "tomli==2.2.1",
   "ruff==0.11.5",
 ]
+music-insights = [
+    "accelerate>=1.7.0",
+    "bitsandbytes>=0.46.0",
+    "chromadb>=1.0.12",
+    "torch>=2.7.1",
+    "torchaudio>=2.7.1",
+    "transformers>=4.52.4",
+]
 
 [project.scripts]
 mass = "music_assistant.__main__:main"
