@@ -30,7 +30,12 @@ from music_assistant.providers.audible.audible_helper import (
 )
 
 if TYPE_CHECKING:
-    from music_assistant_models.media_items import Audiobook, MediaItemType
+    from music_assistant_models.media_items import (
+        Audiobook,
+        MediaItemType,
+        Podcast,
+        PodcastEpisode,
+    )
     from music_assistant_models.provider import ProviderManifest
     from music_assistant_models.streamdetails import StreamDetails
 
@@ -269,7 +274,11 @@ class Audibleprovider(MusicProvider):
     @property
     def supported_features(self) -> set[ProviderFeature]:
         """Return the features supported by this Provider."""
-        return {ProviderFeature.BROWSE, ProviderFeature.LIBRARY_AUDIOBOOKS}
+        return {
+            ProviderFeature.BROWSE,
+            ProviderFeature.LIBRARY_AUDIOBOOKS,
+            ProviderFeature.LIBRARY_PODCASTS,
+        }
 
     @property
     def is_streaming_provider(self) -> bool:
@@ -281,13 +290,35 @@ class Audibleprovider(MusicProvider):
         async for audiobook in self.helper.get_library():
             yield audiobook
 
+    async def get_library_podcasts(self) -> AsyncGenerator[Podcast, None]:
+        """Get all podcasts from the library."""
+        async for podcast in self.helper.get_library_podcasts():
+            yield podcast
+
     async def get_audiobook(self, prov_audiobook_id: str) -> Audiobook:
         """Get full audiobook details by id."""
         return await self.helper.get_audiobook(asin=prov_audiobook_id, use_cache=False)
 
+    async def get_podcast(self, prov_podcast_id: str) -> Podcast:
+        """Get full podcast details by id."""
+        return await self.helper.get_podcast(prov_podcast_id)
+
+    async def get_podcast_episode(self, prov_episode_id: str) -> PodcastEpisode:
+        """Get full podcast episode details by id."""
+        return await self.helper.get_podcast_episode(prov_episode_id)
+
+    async def get_podcast_episodes(
+        self, prov_podcast_id: str
+    ) -> AsyncGenerator[PodcastEpisode, None]:
+        """Get all podcast episodes for given podcast id."""
+        async for episode in self.helper.get_podcast_episodes(prov_podcast_id):
+            yield episode
+
     async def get_stream_details(self, item_id: str, media_type: MediaType) -> StreamDetails:
-        """Get streamdetails for a audiobook based of asin."""
+        """Get streamdetails for an audiobook or podcast episode."""
         try:
+            if media_type == MediaType.PODCAST_EPISODE:
+                return await self.helper.get_podcast_stream(item_id)
             return await self.helper.get_stream(asin=item_id)
         except ValueError as exc:
             raise MediaNotFoundError(f"Failed to get stream details for {item_id}") from exc

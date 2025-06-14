@@ -26,6 +26,8 @@ from music_assistant_models.media_items import (
     AudioFormat,
     MediaItemChapter,
     MediaItemImage,
+    Podcast,
+    PodcastEpisode,
     ProviderMapping,
     UniqueList,
 )
@@ -193,6 +195,111 @@ class AudibleHelper:
             self.logger.info(
                 "Audible: Successfully retrieved %s audiobooks from library", total_processed
             )
+
+    async def get_library_podcasts(self) -> AsyncGenerator[Podcast, None]:
+        """Fetch the user's podcast subscriptions."""
+        library = await self._call_api(
+            "library",
+            response_groups="contributors,media,product_attrs",
+            num_results=50,
+        )
+        items = library.get("items", [])
+        for item in items:
+            if item.get("content_delivery_type") != "Podcast":
+                continue
+            try:
+                podcast = await self._parse_podcast(item)
+            except Exception as exc:
+                self.logger.debug("Failed to parse podcast: %s", exc)
+                continue
+            yield podcast
+
+    async def get_podcast(self, podcast_id: str) -> Podcast:
+        """Return podcast details by id."""
+        data = await self._call_api(f"library/{podcast_id}")
+        return await self._parse_podcast(data.get("item"))
+
+    async def get_podcast_episodes(self, podcast_id: str) -> AsyncGenerator[PodcastEpisode, None]:
+        """Return episodes for the given podcast."""
+        podcast = await self.get_podcast(podcast_id)
+        episodes = await self._call_api(
+            f"library/{podcast_id}/chapters",
+            response_groups="chapter_info",
+        )
+        for idx, episode_data in enumerate(episodes.get("chapters", [])):
+            yield self._parse_podcast_episode(episode_data, podcast, idx)
+
+    async def get_podcast_episode(self, episode_id: str) -> PodcastEpisode:
+        """Return single podcast episode details."""
+        podcast_id, ep = episode_id.split(":", 1)
+        async for episode in self.get_podcast_episodes(podcast_id):
+            if episode.item_id == episode_id:
+                return episode
+        raise MediaNotFoundError(f"Episode {episode_id} not found")
+
+    async def get_podcast_stream(self, episode_id: str) -> StreamDetails:
+        """Return stream details for podcast episode."""
+        podcast_id, ep = episode_id.split(":", 1)
+        playback_info = await self._call_api(
+            f"content/{podcast_id}/licenserequest",
+            chapter_number=ep,
+            response_groups="content_reference,certificate",
+            consumption_type="Streaming",
+        )
+        license_resp = playback_info.get("content_license", {}).get("license_response")
+        return StreamDetails(
+            provider=self.provider_instance,
+            item_id=episode_id,
+            audio_format=AudioFormat(content_type=ContentType.AAC),
+            media_type=MediaType.PODCAST_EPISODE,
+            stream_type=StreamType.HTTP,
+            path=license_resp,
+            can_seek=True,
+            allow_seek=True,
+        )
+
+    async def _parse_podcast(self, data: dict[str, Any] | None) -> Podcast:
+        """Parse podcast data from API."""
+        if data is None:
+            raise MediaNotFoundError("Podcast data missing")
+        pid = data.get("asin") or data.get("podcast_id")
+        podcast = Podcast(
+            item_id=str(pid),
+            provider=self.provider_instance,
+            name=data.get("title"),
+            provider_mappings={
+                ProviderMapping(
+                    item_id=str(pid),
+                    provider_domain=self.provider_domain,
+                    provider_instance=self.provider_instance,
+                )
+            },
+        )
+        if image := data.get("product_images", {}).get("500"):
+            podcast.metadata.images = UniqueList(self._create_images(image))
+        podcast.total_episodes = data.get("num_chapters", 0)
+        return podcast
+
+    def _parse_podcast_episode(
+        self, data: dict[str, Any], podcast: Podcast, index: int
+    ) -> PodcastEpisode:
+        """Parse podcast episode data."""
+        ep_id = f"{podcast.item_id}:{index + 1}"
+        return PodcastEpisode(
+            item_id=ep_id,
+            provider=self.provider_instance,
+            name=data.get("title"),
+            position=index + 1,
+            podcast=podcast,
+            provider_mappings={
+                ProviderMapping(
+                    item_id=ep_id,
+                    provider_domain=self.provider_domain,
+                    provider_instance=self.provider_instance,
+                )
+            },
+            duration=int(data.get("length_ms", 0) / 1000),
+        )
 
     async def get_audiobook(self, asin: str, use_cache: bool = True) -> Audiobook:
         """Fetch the audiobook by asin."""
