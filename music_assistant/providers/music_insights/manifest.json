@@ -5,5 +5,5 @@
   "description": "Provides music recommendations, similar track suggestions, and semantic search capabilities based on audio embeddings and user interactions.",
   "codeowners": ["@ztripez"],
   "requirements": ["chromadb","transformers","torch","torchaudio","accelerate","bitsandbytes"],
-  "documentation": "Link to the documentation on the music-assistant.io helppage (may be added later)."
+  "documentation": "https://www.music-assistant.io/music-insights/"
 }
