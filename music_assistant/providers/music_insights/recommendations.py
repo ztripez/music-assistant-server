@@ -109,15 +109,21 @@ class RecommendationEngine:
 
         scored: dict[str, float] = {}
         id_to_uri: dict[str, str] = {}
+        now = time.time()
         for id_, meta in zip(ids, interactions, strict=False):
             uri = str(meta.get("uri", ""))
             id_to_uri[id_] = uri
-            score = float(meta.get("score", 0))
+            base = float(meta.get("score", 0))
             if meta.get("fully_played"):
-                score += 2
+                base += 2
             duration = float(meta.get("duration", 0))
             if duration:
-                score += float(meta.get("seconds_played", 0)) / duration
+                fraction = float(meta.get("seconds_played", 0)) / duration
+                base += fraction * 2
+            timestamp = float(meta.get("timestamp", now))
+            age_days = max(0.0, now - timestamp) / 86_400
+            decay = 0.9**age_days
+            score = base * decay
             scored[id_] = scored.get(id_, 0) + score
 
         # sort by score, pick most relevant interactions
