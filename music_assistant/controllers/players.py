@@ -126,12 +126,6 @@ class PlayerController(CoreController):
         self._poll_task: asyncio.Task | None = None
         self._player_throttlers: dict[str, Throttler] = {}
         self._announce_locks: dict[str, asyncio.Lock] = {}
-        # TEMP 2024-11-20: register some aliases for renamed commands
-        # remove after a few releases
-        self.mass.register_api_command("players/cmd/sync", self.cmd_group)
-        self.mass.register_api_command("players/cmd/unsync", self.cmd_ungroup)
-        self.mass.register_api_command("players/cmd/sync_many", self.cmd_group_many)
-        self.mass.register_api_command("players/cmd/unsync_many", self.cmd_ungroup_many)
 
     async def setup(self, config: CoreConfig) -> None:
         """Async initialize of module."""
@@ -805,19 +799,23 @@ class PlayerController(CoreController):
             if child_player.synced_to and child_player.synced_to == target_player:
                 continue  # already synced to this target
 
-            if child_player.group_childs and child_player.state != PlayerState.IDLE:
-                # guard edge case: childplayer is already a sync leader on its own
-                raise PlayerCommandFailed(
-                    f"Player {child_player.name} is already synced with other players, "
-                    "you need to ungroup it first before you can join it to another player.",
-                )
-            if child_player.synced_to:
-                # player already synced to another player, ungroup first
-                self.logger.warning(
-                    "Player %s is already synced to another player, ungrouping first",
-                    child_player.name,
-                )
-                await self.cmd_ungroup(child_player.player_id)
+            # perform some sanity checks on the child player
+            # if we're not joining a group player
+            if parent_player.provider != "player_group":
+                if child_player.group_childs and child_player.state != PlayerState.IDLE:
+                    # guard edge case: childplayer is already a sync leader on its own
+                    raise PlayerCommandFailed(
+                        f"Player {child_player.name} is already synced with other players, "
+                        "you need to ungroup it first before you can join it to another player.",
+                    )
+                if child_player.synced_to:
+                    # player already synced to another player, ungroup first
+                    self.logger.warning(
+                        "Player %s is already synced to another player, ungrouping first",
+                        child_player.name,
+                    )
+                    await self.cmd_ungroup(child_player.player_id)
+
             # power on the player if needed
             if not child_player.powered and child_player.power_control != PLAYER_CONTROL_NONE:
                 await self.cmd_power(child_player.player_id, True, skip_update=True)

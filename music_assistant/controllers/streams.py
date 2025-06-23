@@ -9,8 +9,8 @@ the upnp callbacks and json rpc api for slimproto clients.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
-import shutil
 import urllib.parse
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
@@ -127,11 +127,6 @@ class StreamsController(CoreController):
         )
         self.manifest.icon = "cast-audio"
         self.announcements: dict[str, str] = {}
-        # TEMP: remove old cache dir
-        # remove after 2.5.0b15 or b16
-        prev_cache_dir = os.path.join(self.mass.cache_path, ".audio")
-        if os.path.isdir(prev_cache_dir):
-            shutil.rmtree(prev_cache_dir)
         # prefer /tmp/.audio as audio cache dir
         self._audio_cache_dir = os.path.join("/tmp/.audio")  # noqa: S108
         self.allow_cache_default = "auto"
@@ -272,6 +267,20 @@ class StreamsController(CoreController):
         # start the webserver
         self.publish_port = config.get_value(CONF_BIND_PORT)
         self.publish_ip = config.get_value(CONF_PUBLISH_IP)
+        # print a big fat message in the log where the streamserver is running
+        # because this is a common source of issues for people with more complex setups
+        self.logger.log(
+            logging.INFO if self.mass.config.onboard_done else logging.WARNING,
+            "\n\n################################################################################\n"
+            "Starting streamserver on  %s:%s\n"
+            "This is the IP address that is communicated to players.\n"
+            "If this is incorrect, audio will not play!\n"
+            "See the documentation how to configure the publish IP for the Streamserver\n"
+            "in Settings --> Core modules --> Streamserver\n"
+            "################################################################################\n",
+            self.publish_ip,
+            self.publish_port,
+        )
         await self._server.setup(
             bind_ip=config.get_value(CONF_BIND_IP),
             bind_port=self.publish_port,
@@ -356,7 +365,7 @@ class StreamsController(CoreController):
         if not queue:
             raise web.HTTPNotFound(reason=f"Unknown Queue: {queue_id}")
         session_id = request.match_info["session_id"]
-        if session_id != queue.session_id:
+        if queue.session_id and session_id != queue.session_id:
             raise web.HTTPNotFound(reason=f"Unknown (or invalid) session: {session_id}")
         queue_player = self.mass.players.get(queue_id)
         queue_item_id = request.match_info["queue_item_id"]
@@ -427,8 +436,11 @@ class StreamsController(CoreController):
         crossfade = await self.mass.config.get_player_config_value(queue.queue_id, CONF_CROSSFADE)
         if crossfade and PlayerFeature.GAPLESS_PLAYBACK not in queue_player.supported_features:
             # crossfade is not supported on this player due to missing gapless playback
-            self.logger.warning("Crossfade disabled: gapless playback not supported on player")
-            return False
+            self.logger.warning(
+                "Crossfade disabled: Player %s does not support gapless playback",
+                queue_player.display_name,
+            )
+            crossfade = False
 
         if crossfade:
             # crossfade is enabled, use special crossfaded single item stream
@@ -919,25 +931,39 @@ class StreamsController(CoreController):
         use_pre_announce: bool = False,
     ) -> AsyncGenerator[bytes, None]:
         """Get the special announcement stream."""
+        filter_params = ["loudnorm=I=-10:LRA=11:TP=-2"]
+
+        if use_pre_announce:
+            # Note: TTS URLs might take a while to load cause the actual data are often generated
+            # asynchronously by the TTS provider. If we ask ffmpeg to mix the pre-announce, it will
+            # wait until it reads the TTS data, so the whole stream will be delayed. It is much
+            # faster to first play the pre-announce using a separate ffmpeg stream, and only
+            # afterwards play the TTS itself.
+            #
+            # For this to be effective the player itself needs to be able to start playback fast.
+            # If the returned stream is used as input to ffmpeg we should pass -probesize 8096.
+            #
+            # Finally, if the output_format is non-PCM, raw concatenation can be problematic.
+            # So far players seem to tolerate this, but it might break some player in the future.
+
+            async for chunk in get_ffmpeg_stream(
+                audio_input=ANNOUNCE_ALERT_FILE,
+                input_format=AudioFormat(content_type=ContentType.try_parse(ANNOUNCE_ALERT_FILE)),
+                output_format=output_format,
+                filter_params=filter_params,
+            ):
+                yield chunk
+
         # work out output format/details
         fmt = announcement_url.rsplit(".")[-1]
         audio_format = AudioFormat(content_type=ContentType.try_parse(fmt))
-        extra_args = []
-        filter_params = ["loudnorm=I=-10:LRA=11:TP=-2"]
-        if use_pre_announce:
-            extra_args += [
-                "-i",
-                ANNOUNCE_ALERT_FILE,
-                "-filter_complex",
-                "[1:a][0:a]concat=n=2:v=0:a=1,loudnorm=I=-10:LRA=11:TP=-1.5",
-            ]
-            filter_params = []
+        extra_input_args = ["-probesize", "8096"]  # start the stream before reading all TTS input
         async for chunk in get_ffmpeg_stream(
             audio_input=announcement_url,
             input_format=audio_format,
             output_format=output_format,
-            extra_args=extra_args,
             filter_params=filter_params,
+            extra_input_args=extra_input_args,
         ):
             yield chunk
 

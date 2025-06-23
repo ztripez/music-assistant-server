@@ -35,7 +35,7 @@ from music_assistant_models.media_items import (
     ItemMapping,
     MediaItemChapter,
     MediaItemImage,
-    MediaItemTypeOrItemMapping,
+    MediaItemType,
     Playlist,
     Podcast,
     PodcastEpisode,
@@ -259,7 +259,7 @@ class LocalFileSystemProvider(MusicProvider):
             )
         return result
 
-    async def browse(self, path: str) -> Sequence[MediaItemTypeOrItemMapping]:
+    async def browse(self, path: str) -> Sequence[MediaItemType | ItemMapping | BrowseFolder]:
         """Browse this provider's items.
 
         :param path: The path to browse, (e.g. provid://artists).
@@ -269,7 +269,7 @@ class LocalFileSystemProvider(MusicProvider):
             return await self.mass.music.podcasts.library_items(provider=self.instance_id)
         if self.media_content_type == "audiobooks":
             return await self.mass.music.audiobooks.library_items(provider=self.instance_id)
-        items: list[MediaItemTypeOrItemMapping] = []
+        items: list[MediaItemType | ItemMapping | BrowseFolder] = []
         item_path = path.split("://", 1)[1]
         if not item_path:
             item_path = ""
@@ -826,7 +826,7 @@ class LocalFileSystemProvider(MusicProvider):
         for item in playlist_items:
             new_playlist_data += f"\n#EXTINF:{item.length or 0},{item.title}\n{item.path}\n"
         async with aiofiles.open(playlist_filename, "w", encoding="utf-8") as _file:
-            await _file.write(playlist_data)
+            await _file.write(new_playlist_data)
 
     async def create_playlist(self, name: str) -> Playlist:
         """Create a new playlist on provider with given name."""
@@ -971,6 +971,16 @@ class LocalFileSystemProvider(MusicProvider):
                     tags.track_album_loudness,
                 )
             )
+
+        # possible lrclib metadata
+        # synced lyrics are saved as "filename.lrc" by lrcget alongside
+        # the actual file location - just change the file extension
+        assert file_item.ext is not None  # for type checking
+        lrc_path = f"{file_item.absolute_path.removesuffix(file_item.ext)}lrc"
+        if await self.exists(lrc_path):
+            async with aiofiles.open(lrc_path) as lrc_file:
+                track.metadata.lrc_lyrics = await lrc_file.read()
+
         return track
 
     async def _parse_artist(

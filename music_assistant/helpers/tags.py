@@ -32,16 +32,18 @@ LOGGER = logging.getLogger(f"{MASS_LOGGER_NAME}.tags")
 TAG_SPLITTER = ";"
 
 
-def clean_tuple(values: Iterable[str]) -> tuple:
+def clean_tuple(values: Iterable[str]) -> tuple[str, ...]:
     """Return a tuple with all empty values removed."""
     return tuple(x.strip() for x in values if x not in (None, "", " "))
 
 
-def split_items(org_str: str, allow_unsafe_splitters: bool = False) -> tuple[str, ...]:
+def split_items(
+    org_str: str | list[str] | tuple[str, ...] | None, allow_unsafe_splitters: bool = False
+) -> tuple[str, ...]:
     """Split up a tags string by common splitter."""
     if org_str is None:
         return ()
-    if isinstance(org_str, list):
+    if isinstance(org_str, tuple | list):
         final_items: list[str] = []
         for item in org_str:
             final_items.extend(split_items(item, allow_unsafe_splitters))
@@ -57,16 +59,25 @@ def split_items(org_str: str, allow_unsafe_splitters: bool = False) -> tuple[str
 
 
 def split_artists(
-    org_artists: str | tuple[str, ...], allow_ampersand: bool = False
+    org_artists: str | tuple[str, ...], allow_extra_splitters: bool = False
 ) -> tuple[str, ...]:
     """Parse all artists from a string."""
     final_artists: list[str] = []
     # when not using the multi artist tag, the artist string may contain
     # multiple artists in freeform, even featuring artists may be included in this
     # string. Try to parse the featuring artists and separate them.
-    splitters = ("featuring", " feat. ", " feat ", "feat.")
-    if allow_ampersand:
-        splitters = (*splitters, " & ")
+    splitters = [
+        " featuring ",
+        " feat. ",
+        " feat ",
+        " duet with ",
+        " with ",
+        " ft. ",
+        " vs. ",
+    ]
+    splitters += [x.title() for x in splitters]
+    if allow_extra_splitters:
+        splitters += [" & ", ", ", " + "]
     artists = split_items(org_artists, allow_unsafe_splitters=False)
     for item in artists:
         for splitter in splitters:
@@ -150,6 +161,11 @@ class AudioTags:
         if tag := self.tags.get("artist"):
             if TAG_SPLITTER in tag:
                 return split_items(tag)
+            if len(self.musicbrainz_artistids) > 1:
+                # special case: artist noted as 2 artists with ampersand or other splitter
+                # but with 2 mb ids so they should be treated as 2 artists
+                # example: John Travolta & Olivia Newton John on the Grease album
+                return split_artists(tag, allow_extra_splitters=True)
             return split_artists(tag)
         # fallback to parsing from filename
         title = self.filename.rsplit(os.sep, 1)[-1].split(".")[0]
@@ -183,10 +199,10 @@ class AudioTags:
             if TAG_SPLITTER in tag:
                 return split_items(tag)
             if len(self.musicbrainz_albumartistids) > 1:
-                # special case: album artist noted as 2 artists with ampersand
+                # special case: album artist noted as 2 artists with ampersand or other splitter
                 # but with 2 mb ids so they should be treated as 2 artists
                 # example: John Travolta & Olivia Newton John on the Grease album
-                return split_artists(tag, allow_ampersand=True)
+                return split_artists(tag, allow_extra_splitters=True)
             return split_artists(tag)
         return ()
 
@@ -319,7 +335,7 @@ class AudioTags:
         return AlbumType.UNKNOWN
 
     @property
-    def isrc(self) -> tuple[str]:
+    def isrc(self) -> tuple[str, ...]:
         """Return isrc tag(s)."""
         for tag_name in ("isrc", "tsrc"):
             if tag := self.tags.get(tag_name):
@@ -384,7 +400,7 @@ class AudioTags:
         return None
 
     @classmethod
-    def parse(cls, raw: dict) -> AudioTags:
+    def parse(cls, raw: dict[str, Any]) -> AudioTags:
         """Parse instance from raw ffmpeg info output."""
         audio_stream = next((x for x in raw["streams"] if x["codec_type"] == "audio"), None)
         if audio_stream is None:
@@ -421,7 +437,7 @@ class AudioTags:
             filename=raw["format"]["filename"],
         )
 
-    def get(self, key: str, default=None) -> Any:
+    def get(self, key: str, default: Any | None = None) -> Any:
         """Get tag by key."""
         return self.tags.get(key, default)
 
@@ -518,7 +534,7 @@ def get_file_duration(input_file: str) -> float:
         # extract duration from ffmpeg output
         duration_str = res.split("time=")[-1].split(" ")[0].strip()
         duration_parts = duration_str.split(":")
-        duration = 0
+        duration = 0.0
         for part in duration_parts:
             duration = duration * 60 + float(part)
         return duration
@@ -533,10 +549,11 @@ def parse_tags_mutagen(input_file: str) -> dict[str, Any]:
 
     NOT Async friendly.
     """
-    result = {}
+    result: dict[str, Any] = {}
     try:
         # TODO: extend with more tags and file types!
-        tags = mutagen.File(input_file)
+        # https://mutagen.readthedocs.io/en/latest/user/gettingstarted.html
+        tags = mutagen.File(input_file)  # type: ignore[attr-defined]
         if tags is None or not tags.tags:
             return result
         tags = dict(tags.tags)
@@ -590,7 +607,7 @@ async def get_embedded_image(input_file: str) -> bytes | None:
 
     Input_file may be a (local) filename or URL accessible by ffmpeg.
     """
-    args = (
+    args = [
         "ffmpeg",
         "-hide_banner",
         "-loglevel",
@@ -603,7 +620,7 @@ async def get_embedded_image(input_file: str) -> bytes | None:
         "-f",
         "mjpeg",
         "-",
-    )
+    ]
     async with AsyncProcess(
         args, stdin=False, stdout=True, stderr=None, name="ffmpeg_image"
     ) as ffmpeg:

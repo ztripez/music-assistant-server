@@ -466,7 +466,14 @@ class GPodder(MusicProvider):
                 lookup_key=self.lookup_key,
                 instance_id=self.instance_id,
             )
-            stream_url, guid = get_stream_url_and_guid_from_episode(episode=parsed_episode)
+            if mass_episode is None:
+                # faulty episode
+                continue
+            try:
+                stream_url, guid = get_stream_url_and_guid_from_episode(episode=parsed_episode)
+            except ValueError:
+                # episode enclosure or stream url missing
+                continue
 
             for action in episode_actions:
                 # we have to test both, as we are comparing to external input.
@@ -605,7 +612,12 @@ class GPodder(MusicProvider):
             if len(episode_enclosures) < 1:
                 raise MediaNotFoundError
             stream_url: str | None = episode_enclosures[0].get("url", None)
-            if guid_or_stream_url == episode.get("guid", stream_url):
+            guid = episode.get("guid")
+            if guid is not None and len(guid.split(" ")) == 1:
+                _guid_or_stream_url_compare = guid
+            else:
+                _guid_or_stream_url_compare = stream_url
+            if guid_or_stream_url == _guid_or_stream_url_compare:
                 return stream_url
         return None
 

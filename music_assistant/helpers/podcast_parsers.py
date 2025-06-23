@@ -76,16 +76,22 @@ def parse_podcast(
     return mass_podcast
 
 
-def get_stream_url_and_guid_from_episode(
-    *, episode: dict[str, Any]
-) -> tuple[str | None, str | None]:
+def get_stream_url_and_guid_from_episode(*, episode: dict[str, Any]) -> tuple[str, str | None]:
     """Give episode's stream url and guid, if it exists."""
     episode_enclosures = episode.get("enclosures", [])
     if len(episode_enclosures) < 1:
-        raise RuntimeError
-    stream_url = episode_enclosures[0].get("url", None)
-    guid = episode.get("guid")
-    return stream_url, guid
+        raise ValueError("Episode enclosure is missing")
+    if stream_url := episode_enclosures[0].get("url"):
+        guid = episode.get("guid")
+        if guid is not None:
+            # The media's item_id is {prov_podcast_id} {guid_or_stream_url}
+            # see parse_podcast_episode.
+            # However, the guid must not contain a space, otherwise it is invalid.
+            # We cannot check, if it is a proper guid (uuid.UUID4(...)), as some podcast feeds
+            # do not follow the standard.
+            guid = None if len(guid.split(" ")) > 1 else guid
+        return stream_url, guid
+    raise ValueError("Stream URL is missing.")
 
 
 def parse_podcast_episode(
@@ -98,11 +104,14 @@ def parse_podcast_episode(
     domain: str,
     instance_id: str,
     mass_item_id: str | None = None,
-) -> PodcastEpisode:
+) -> PodcastEpisode | None:
     """Podcast Episode -> Mass Podcast Episode.
 
     The item_id is {prov_podcast_id} {guid_or_stream_url} by default, or the optional mass_item_id
     instead. The podcast_cover is used, if the episode should not have its own cover.
+
+    The function returns None, if the episode enclosure is missing, i.e. there is no stream
+    information present.
     """
     episode_duration = episode.get("total_time", 0.0)
     episode_title = episode.get("title", "NO_EPISODE_TITLE")
@@ -113,10 +122,13 @@ def parse_podcast_episode(
     if episode_published == 0:
         episode_published = None
 
-    stream_url, guid = get_stream_url_and_guid_from_episode(episode=episode)
-    guid_or_stream_url = guid if guid is not None else stream_url
-    if stream_url is None:
-        raise RuntimeError("Episode has no stream information!")
+    try:
+        stream_url, guid = get_stream_url_and_guid_from_episode(episode=episode)
+    except ValueError:
+        # we are missing the episode enclosure or stream information
+        return None
+    # We treat a guid as invalid if contains a space.
+    guid_or_stream_url = guid if guid is not None and len(guid.split(" ")) == 1 else stream_url
 
     # Default episode id. A guid is preferred as identification.
     episode_id = f"{prov_podcast_id} {guid_or_stream_url}" if mass_item_id is None else mass_item_id
