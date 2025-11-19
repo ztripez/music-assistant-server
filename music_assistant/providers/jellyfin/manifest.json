@@ -1,8 +1,9 @@
 {
   "type": "music",
   "domain": "jellyfin",
+  "stage": "unmaintained",
   "name": "Jellyfin Media Server Library",
-  "description": "Support for the Jellyfin streaming provider in Music Assistant.",
+  "description": "Stream music from your self-hosted Jellyfin server.",
   "codeowners": ["@lokiberra", "@Jc2k"],
   "requirements": ["aiojellyfin==0.14.1"],
   "documentation": "https://music-assistant.io/music-providers/jellyfin/",

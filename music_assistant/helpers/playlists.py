@@ -84,7 +84,12 @@ def parse_m3u(m3u_data: str) -> list[PlaylistItem]:
                 kev_value_parts = part.strip().split("=")
                 stream_info[kev_value_parts[0]] = kev_value_parts[1]
         elif line.startswith("#EXT-X-KEY:"):
-            key = line.split(",URI=")[1].strip('"')
+            # Extract encryption key URI if present
+            # METHOD=NONE means no encryption, so explicitly clear the key
+            if "METHOD=NONE" in line:
+                key = None
+            elif ",URI=" in line:
+                key = line.split(",URI=")[1].strip('"')
         elif line.startswith("#"):
             # Ignore other extensions
             continue
@@ -116,7 +121,7 @@ def parse_pls(pls_data: str) -> list[PlaylistItem]:
     except configparser.Error as err:
         raise InvalidDataError("Can't parse playlist") from err
 
-    if "playlist" not in pls_parser or pls_parser["playlist"].getint("Version") != 2:
+    if "playlist" not in pls_parser:
         raise InvalidDataError("Invalid playlist")
 
     try:

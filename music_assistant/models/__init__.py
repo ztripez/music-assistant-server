@@ -11,9 +11,10 @@ from .plugin import PluginProvider
 
 if TYPE_CHECKING:
     from music_assistant_models.config_entries import ConfigEntry, ConfigValueType, ProviderConfig
+    from music_assistant_models.enums import ProviderFeature
     from music_assistant_models.provider import ProviderManifest
 
-    from music_assistant import MusicAssistant
+    from music_assistant.mass import MusicAssistant
 
 
 ProviderInstanceType = MetadataProvider | MusicProvider | PlayerProvider | PluginProvider
@@ -22,11 +23,15 @@ ProviderInstanceType = MetadataProvider | MusicProvider | PlayerProvider | Plugi
 class ProviderModuleType(Protocol):
     """Model for a provider module to support type hints."""
 
+    """Return the (base) features supported by this Provider."""
+    SUPPORTED_FEATURES: set[ProviderFeature]
+
     @staticmethod
     async def setup(
         mass: MusicAssistant, manifest: ProviderManifest, config: ProviderConfig
     ) -> ProviderInstanceType:
         """Initialize provider(instance) with given configuration."""
+        raise NotImplementedError
 
     @staticmethod
     async def get_config_entries(
@@ -42,3 +47,4 @@ class ProviderModuleType(Protocol):
         action: [optional] action key called from config entries UI.
         values: the (intermediate) raw values for config entries sent with the action.
         """
+        raise NotImplementedError

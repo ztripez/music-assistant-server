@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 from music_assistant_models.config_entries import ConfigEntry, ConfigValueOption
 from music_assistant_models.enums import ConfigEntryType, ProviderFeature
 
@@ -46,11 +48,58 @@ CONF_ENTRY_CONTENT_TYPE = ConfigEntry(
     ],
 )
 CONF_ENTRY_CONTENT_TYPE_READ_ONLY = ConfigEntry.from_dict(
-    {
-        **CONF_ENTRY_CONTENT_TYPE.to_dict(),
-        "depends_on": CONF_ENTRY_PATH.key,
-        "depends_on_value": "thisdoesnotexist",
-    }
+    {**CONF_ENTRY_CONTENT_TYPE.to_dict(), "read_only": True}
+)
+
+CONF_ENTRY_LIBRARY_SYNC_TRACKS = ConfigEntry(
+    key="library_sync_tracks",
+    type=ConfigEntryType.BOOLEAN,
+    label="Import tracks/files into the Music Assistant library",
+    description="Define how/if you want to import tracks/files from the filesystem "
+    "into the Music Assistant Library. \nWhen not importing into the library, "
+    "they can still be manually browsed using the Browse feature. \n\n"
+    "Please note that by adding a Track into the Music Assistant library, "
+    "the track artists and album will always be imported as well.",
+    default_value=True,
+    category="sync_options",
+    depends_on=CONF_CONTENT_TYPE,
+    depends_on_value="music",
+)
+CONF_ENTRY_LIBRARY_SYNC_PLAYLISTS = ConfigEntry(
+    key="library_sync_playlists",
+    type=ConfigEntryType.BOOLEAN,
+    label="Import playlists (m3u files) into the Music Assistant library",
+    description="Define how/if you want to import playlists (m3u files) from the filesystem "
+    "into the Music Assistant Library. \nWhen not importing into the library, "
+    "they can still be manually browsed using the Browse feature.",
+    default_value=True,
+    category="sync_options",
+    depends_on=CONF_CONTENT_TYPE,
+    depends_on_value="music",
+)
+CONF_ENTRY_LIBRARY_SYNC_PODCASTS = ConfigEntry(
+    key="library_sync_podcasts",
+    type=ConfigEntryType.BOOLEAN,
+    label="Import Podcasts(files) into the Music Assistant library",
+    description="Define how/if you want to import Podcasts(files) from the filesystem "
+    "into the Music Assistant Library. \nWhen not importing into the library, "
+    "they can still be manually browsed using the Browse feature.",
+    default_value=True,
+    category="sync_options",
+    depends_on=CONF_CONTENT_TYPE,
+    depends_on_value="podcasts",
+)
+CONF_ENTRY_LIBRARY_SYNC_AUDIOBOOKS = ConfigEntry(
+    key="library_sync_audiobooks",
+    type=ConfigEntryType.BOOLEAN,
+    label="Import Audiobooks(files) into the Music Assistant library",
+    description="Define how/if you want to import Audiobooks(files) from the filesystem "
+    "into the Music Assistant Library. \nWhen not importing into the library, "
+    "they can still be manually browsed using the Browse feature.",
+    default_value=True,
+    category="sync_options",
+    depends_on=CONF_CONTENT_TYPE,
+    depends_on_value="audiobooks",
 )
 
 CONF_ENTRY_IGNORE_ALBUM_PLAYLISTS = ConfigEntry(
@@ -58,12 +107,14 @@ CONF_ENTRY_IGNORE_ALBUM_PLAYLISTS = ConfigEntry(
     type=ConfigEntryType.BOOLEAN,
     label="Ignore playlists with album tracks within album folders",
     description="A digital album often comes with a playlist file (.m3u) "
-    "that contains the tracks of the album. Adding all these playlists to the library, "
+    "that contains the tracks of the album. \nAdding all these playlists to the library, "
     "is not very practical so it's better to just ignore them.\n\n"
     "If this option is enabled, all playlists will be ignored which are more than "
     "1 level deep anywhere in the folder structure. E.g. /music/artistname/albumname/playlist.m3u",
     default_value=True,
     required=False,
+    depends_on=CONF_CONTENT_TYPE,
+    depends_on_value="music",
 )
 
 TRACK_EXTENSIONS = {
@@ -124,3 +175,10 @@ SUPPORTED_FEATURES = {
 
 class IsChapterFile(Exception):
     """Exception to indicate that a file is part of a multi-part media (e.g. audiobook chapter)."""
+
+
+CACHE_CATEGORY_ARTIST_INFO: Final[int] = 1
+CACHE_CATEGORY_ALBUM_INFO: Final[int] = 2
+CACHE_CATEGORY_FOLDER_IMAGES: Final[int] = 3
+CACHE_CATEGORY_AUDIOBOOK_CHAPTERS: Final[int] = 4
+CACHE_CATEGORY_PODCAST_METADATA: Final[int] = 5

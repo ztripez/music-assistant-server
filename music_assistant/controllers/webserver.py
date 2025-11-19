@@ -8,16 +8,19 @@ this webserver allows for more fine grained configuration to better secure it.
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 import os
 import urllib.parse
+from collections.abc import Awaitable, Callable
 from concurrent import futures
 from contextlib import suppress
-from contextvars import ContextVar
 from functools import partial
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any, Final, cast
 
+import aiofiles
 from aiohttp import WSMsgType, web
+from mashumaro.exceptions import MissingField
 from music_assistant_frontend import where as locate_frontend
 from music_assistant_models.api import (
     CommandMessage,
@@ -31,24 +34,28 @@ from music_assistant_models.errors import InvalidCommand
 
 from music_assistant.constants import CONF_BIND_IP, CONF_BIND_PORT, VERBOSE_LOG_LEVEL
 from music_assistant.helpers.api import APICommandHandler, parse_arguments
+from music_assistant.helpers.api_docs import (
+    generate_commands_reference,
+    generate_openapi_spec,
+    generate_schemas_reference,
+)
 from music_assistant.helpers.audio import get_preview_stream
-from music_assistant.helpers.json import json_dumps
+from music_assistant.helpers.json import json_dumps, json_loads
 from music_assistant.helpers.util import get_ip_addresses
 from music_assistant.helpers.webserver import Webserver
 from music_assistant.models.core_controller import CoreController
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable
-
     from music_assistant_models.config_entries import ConfigValueType, CoreConfig
     from music_assistant_models.event import MassEvent
 
+    from music_assistant import MusicAssistant
+
 DEFAULT_SERVER_PORT = 8095
+INGRESS_SERVER_PORT = 8094
 CONF_BASE_URL = "base_url"
-CONF_EXPOSE_SERVER = "expose_server"
 MAX_PENDING_MSG = 512
 CANCELLATION_ERRORS: Final = (asyncio.CancelledError, futures.CancelledError)
-_BASE_URL: ContextVar[str] = ContextVar("_BASE_URL", default="")
 
 
 class WebserverController(CoreController):
@@ -56,9 +63,9 @@ class WebserverController(CoreController):
 
     domain: str = "webserver"
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, mass: MusicAssistant) -> None:
         """Initialize instance."""
-        super().__init__(*args, **kwargs)
+        super().__init__(mass)
         self._server = Webserver(self.logger, enable_dynamic_routes=True)
         self.register_dynamic_route = self._server.register_dynamic_route
         self.unregister_dynamic_route = self._server.unregister_dynamic_route
@@ -72,7 +79,7 @@ class WebserverController(CoreController):
     @property
     def base_url(self) -> str:
         """Return the base_url for the streamserver."""
-        return _BASE_URL.get(self._server.base_url)
+        return self._server.base_url
 
     async def get_config_entries(
         self,
@@ -82,30 +89,16 @@ class WebserverController(CoreController):
         """Return all Config Entries for this core module (if any)."""
         ip_addresses = await get_ip_addresses()
         default_publish_ip = ip_addresses[0]
-        if self.mass.running_as_hass_addon:
-            return (
-                ConfigEntry(
-                    key=CONF_EXPOSE_SERVER,
-                    type=ConfigEntryType.BOOLEAN,
-                    # hardcoded/static value
-                    default_value=False,
-                    label="Expose the webserver (port 8095)",
-                    description="By default the Music Assistant webserver "
-                    "(serving the API and frontend), runs on a protected internal network only "
-                    "and you can securely access the webinterface using "
-                    "Home Assistant's ingress service from the sidebar menu.\n\n"
-                    "By enabling this option you also allow direct access to the webserver "
-                    "from your local network, meaning you can navigate to "
-                    f"http://{default_publish_ip}:8095 to access the webinterface. \n\n"
-                    "Use this option on your own risk and never expose this port "
-                    "directly to the internet.",
-                ),
-            )
-
-        # HA supervisor not present: user is responsible for securing the webserver
-        # we give the tools to do so by presenting config options
         default_base_url = f"http://{default_publish_ip}:{DEFAULT_SERVER_PORT}"
         return (
+            ConfigEntry(
+                key="webserver_warn",
+                type=ConfigEntryType.ALERT,
+                label="Please note that the webserver is unprotected. "
+                "Never ever expose the webserver directly to the internet! \n\n"
+                "Use a reverse proxy or VPN to secure access.",
+                required=False,
+            ),
             ConfigEntry(
                 key=CONF_BASE_URL,
                 type=ConfigEntryType.STRING,
@@ -128,10 +121,11 @@ class WebserverController(CoreController):
                 default_value="0.0.0.0",
                 options=[ConfigValueOption(x, x) for x in {"0.0.0.0", *ip_addresses}],
                 label="Bind to IP/interface",
-                description="Start the (web)server on this specific interface. \n"
+                description="Bind the (web)server to this specific interface. \n"
                 "Use 0.0.0.0 to bind to all interfaces. \n"
                 "Set this address for example to a docker-internal network, "
-                "to enhance security and protect outside access to the webinterface and API. \n\n"
+                "when you are running a reverse proxy to enhance security and "
+                "protect outside access to the webinterface and API. \n\n"
                 "This is an advanced setting that should normally "
                 "not be adjusted in regular setups.",
                 category="advanced",
@@ -141,7 +135,7 @@ class WebserverController(CoreController):
     async def setup(self, config: CoreConfig) -> None:
         """Async initialize of module."""
         # work out all routes
-        routes: list[tuple[str, str, Awaitable]] = []
+        routes: list[tuple[str, str, Callable[[web.Request], Awaitable[web.StreamResponse]]]] = []
         # frontend routes
         frontend_dir = locate_frontend()
         for filename in next(os.walk(frontend_dir))[2]:
@@ -166,50 +160,54 @@ class WebserverController(CoreController):
         routes.append(("GET", "/preview", self.serve_preview_stream))
         # add jsonrpc api
         routes.append(("POST", "/api", self._handle_jsonrpc_api_command))
+        # add api documentation
+        routes.append(("GET", "/api-docs", self._handle_api_intro))
+        routes.append(("GET", "/api-docs/", self._handle_api_intro))
+        routes.append(("GET", "/api-docs/commands", self._handle_commands_reference))
+        routes.append(("GET", "/api-docs/commands/", self._handle_commands_reference))
+        routes.append(("GET", "/api-docs/schemas", self._handle_schemas_reference))
+        routes.append(("GET", "/api-docs/schemas/", self._handle_schemas_reference))
+        routes.append(("GET", "/api-docs/openapi.json", self._handle_openapi_spec))
+        routes.append(("GET", "/api-docs/swagger", self._handle_swagger_ui))
+        routes.append(("GET", "/api-docs/swagger/", self._handle_swagger_ui))
         # start the webserver
         all_ip_addresses = await get_ip_addresses()
         default_publish_ip = all_ip_addresses[0]
         if self.mass.running_as_hass_addon:
-            # if we're running on the HA supervisor the webserver is secured by HA ingress
-            # we only start the webserver on the internal docker network and ingress connects
-            # to that internally and exposes the webUI securely
-            # if a user also wants to expose a the webserver non securely on his internal
-            # network he/she should explicitly do so (and know the risks)
-            self.publish_port = DEFAULT_SERVER_PORT
-            if config.get_value(CONF_EXPOSE_SERVER):
-                bind_ip = "0.0.0.0"
-                self.publish_ip = default_publish_ip
-            else:
-                # use internal ("172.30.32.) IP
-                self.publish_ip = bind_ip = next(
-                    (x for x in all_ip_addresses if x.startswith("172.30.32.")), default_publish_ip
-                )
-            base_url = f"http://{self.publish_ip}:{self.publish_port}"
+            # if we're running on the HA supervisor we start an additional TCP site
+            # on the internal ("172.30.32.) IP for the HA ingress proxy
+            ingress_host = next(
+                (x for x in all_ip_addresses if x.startswith("172.30.32.")), default_publish_ip
+            )
+            ingress_tcp_site_params = (ingress_host, INGRESS_SERVER_PORT)
         else:
-            base_url = config.get_value(CONF_BASE_URL)
-            self.publish_port = config.get_value(CONF_BIND_PORT)
-            self.publish_ip = default_publish_ip
-            bind_ip = config.get_value(CONF_BIND_IP)
-            # print a big fat message in the log where the webserver is running
-            # because this is a common source of issues for people with more complex setups
-            if not self.mass.config.onboard_done:
-                self.logger.warning(
-                    "\n\n################################################################################\n"
-                    "Starting webserver on  %s:%s - base url: %s\n"
-                    "If this is incorrect, see the documentation how to configure the Webserver\n"
-                    "in Settings --> Core modules --> Webserver\n"
-                    "################################################################################\n",
-                    bind_ip,
-                    self.publish_port,
-                    base_url,
-                )
-            else:
-                self.logger.info(
-                    "Starting webserver on  %s:%s - base url: %s\n#\n",
-                    bind_ip,
-                    self.publish_port,
-                    base_url,
-                )
+            ingress_tcp_site_params = None
+        base_url = str(config.get_value(CONF_BASE_URL))
+        port_value = config.get_value(CONF_BIND_PORT)
+        assert isinstance(port_value, int)
+        self.publish_port = port_value
+        self.publish_ip = default_publish_ip
+        bind_ip = cast("str | None", config.get_value(CONF_BIND_IP))
+        # print a big fat message in the log where the webserver is running
+        # because this is a common source of issues for people with more complex setups
+        if not self.mass.config.onboard_done:
+            self.logger.warning(
+                "\n\n################################################################################\n"
+                "Starting webserver on  %s:%s - base url: %s\n"
+                "If this is incorrect, see the documentation how to configure the Webserver\n"
+                "in Settings --> Core modules --> Webserver\n"
+                "################################################################################\n",
+                bind_ip,
+                self.publish_port,
+                base_url,
+            )
+        else:
+            self.logger.info(
+                "Starting webserver on  %s:%s - base url: %s\n#\n",
+                bind_ip,
+                self.publish_port,
+                base_url,
+            )
         await self._server.setup(
             bind_ip=bind_ip,
             bind_port=self.publish_port,
@@ -217,6 +215,7 @@ class WebserverController(CoreController):
             static_routes=routes,
             # add assets subdir as static_content
             static_content=("/assets", os.path.join(frontend_dir, "assets"), "assets"),
+            ingress_tcp_site_params=ingress_tcp_site_params,
         )
 
     async def close(self) -> None:
@@ -225,7 +224,7 @@ class WebserverController(CoreController):
             await client.disconnect()
         await self._server.close()
 
-    async def serve_preview_stream(self, request: web.Request):
+    async def serve_preview_stream(self, request: web.Request) -> web.StreamResponse:
         """Serve short preview sample."""
         provider_instance_id_or_domain = request.query["provider"]
         item_id = urllib.parse.unquote(request.query["item_id"])
@@ -258,9 +257,19 @@ class WebserverController(CoreController):
         try:
             command_msg = CommandMessage.from_json(cmd_data)
         except ValueError:
-            error = f"Invalid JSON: {cmd_data}"
+            error = f"Invalid JSON: {cmd_data.decode()}"
             self.logger.error("Unhandled JSONRPC API error: %s", error)
             return web.Response(status=400, text=error)
+        except MissingField as e:
+            # be forgiving if message_id is missing
+            cmd_data_dict = json_loads(cmd_data)
+            if e.field_name == "message_id" and "command" in cmd_data_dict:
+                cmd_data_dict["message_id"] = "unknown"
+                command_msg = CommandMessage.from_dict(cmd_data_dict)
+            else:
+                error = f"Missing field in JSON: {e!s}"
+                self.logger.error("Unhandled JSONRPC API error: %s", error)
+                return web.Response(status=400, text=error)
 
         # work out handler for the given path/command
         handler = self.mass.command_handlers.get(command_msg.command)
@@ -268,19 +277,67 @@ class WebserverController(CoreController):
             error = f"Invalid Command: {command_msg.command}"
             self.logger.error("Unhandled JSONRPC API error: %s", error)
             return web.Response(status=400, text=error)
-        args = parse_arguments(handler.signature, handler.type_hints, command_msg.args)
-        result = handler.target(**args)
-        if hasattr(result, "__anext__"):
-            # handle async generator (for really large listings)
-            result = [item async for item in result]
-        elif asyncio.iscoroutine(result):
-            result = await result
-        return web.json_response(result, dumps=json_dumps)
+        try:
+            args = parse_arguments(handler.signature, handler.type_hints, command_msg.args)
+            result: Any = handler.target(**args)
+            if hasattr(result, "__anext__"):
+                # handle async generator (for really large listings)
+                result = [item async for item in result]
+            elif asyncio.iscoroutine(result):
+                result = await result
+            return web.json_response(result, dumps=json_dumps)
+        except Exception as e:
+            # Return clean error message without stacktrace
+            error_type = type(e).__name__
+            error_msg = str(e)
+            error = f"{error_type}: {error_msg}"
+            self.logger.error("Error executing command %s: %s", command_msg.command, error)
+            return web.Response(status=500, text=error)
 
     async def _handle_application_log(self, request: web.Request) -> web.Response:
         """Handle request to get the application log."""
         log_data = await self.mass.get_application_log()
         return web.Response(text=log_data, content_type="text/text")
+
+    async def _handle_api_intro(self, request: web.Request) -> web.Response:
+        """Handle request for API introduction/documentation page."""
+        intro_html_path = os.path.join(
+            os.path.dirname(__file__), "..", "helpers", "resources", "api_docs.html"
+        )
+        # Read the template
+        async with aiofiles.open(intro_html_path) as f:
+            html_content = await f.read()
+
+        # Replace placeholders (escape values to prevent XSS)
+        html_content = html_content.replace("{VERSION}", html.escape(self.mass.version))
+        html_content = html_content.replace("{BASE_URL}", html.escape(self.base_url))
+        html_content = html_content.replace("{SERVER_HOST}", html.escape(request.host))
+
+        return web.Response(text=html_content, content_type="text/html")
+
+    async def _handle_openapi_spec(self, request: web.Request) -> web.Response:
+        """Handle request for OpenAPI specification (generated on-the-fly)."""
+        spec = generate_openapi_spec(
+            self.mass.command_handlers, server_url=self.base_url, version=self.mass.version
+        )
+        return web.json_response(spec)
+
+    async def _handle_commands_reference(self, request: web.Request) -> web.Response:
+        """Handle request for commands reference page (generated on-the-fly)."""
+        html = generate_commands_reference(self.mass.command_handlers, server_url=self.base_url)
+        return web.Response(text=html, content_type="text/html")
+
+    async def _handle_schemas_reference(self, request: web.Request) -> web.Response:
+        """Handle request for schemas reference page (generated on-the-fly)."""
+        html = generate_schemas_reference(self.mass.command_handlers)
+        return web.Response(text=html, content_type="text/html")
+
+    async def _handle_swagger_ui(self, request: web.Request) -> web.FileResponse:
+        """Handle request for Swagger UI."""
+        swagger_html_path = os.path.join(
+            os.path.dirname(__file__), "..", "helpers", "resources", "swagger_ui.html"
+        )
+        return await self._server.serve_static(swagger_html_path, request)
 
 
 class WebsocketClientHandler:
@@ -291,9 +348,9 @@ class WebsocketClientHandler:
         self.mass = webserver.mass
         self.request = request
         self.wsock = web.WebSocketResponse(heartbeat=55)
-        self._to_write: asyncio.Queue = asyncio.Queue(maxsize=MAX_PENDING_MSG)
-        self._handle_task: asyncio.Task | None = None
-        self._writer_task: asyncio.Task | None = None
+        self._to_write: asyncio.Queue[str | None] = asyncio.Queue(maxsize=MAX_PENDING_MSG)
+        self._handle_task: asyncio.Task[Any] | None = None
+        self._writer_task: asyncio.Task[None] | None = None
         self._logger = webserver.logger
         # try to dynamically detect the base_url of a client if proxied or behind Ingress
         self.base_url: str | None = None
@@ -325,11 +382,11 @@ class WebsocketClientHandler:
         self._writer_task = self.mass.create_task(self._writer())
 
         # send server(version) info when client connects
-        self._send_message(self.mass.get_server_info())
+        await self._send_message(self.mass.get_server_info())
 
         # forward all events to clients
         def handle_event(event: MassEvent) -> None:
-            self._send_message(event)
+            self._send_message_sync(event)
 
         unsub_callback = self.mass.subscribe(handle_event)
 
@@ -353,7 +410,7 @@ class WebsocketClientHandler:
                     disconnect_warn = f"Received invalid JSON: {msg.data}"
                     break
 
-                self._handle_command(command_msg)
+                await self._handle_command(command_msg)
 
         except asyncio.CancelledError:
             self._logger.debug("Connection closed by client")
@@ -382,17 +439,15 @@ class WebsocketClientHandler:
 
         return wsock
 
-    def _handle_command(self, msg: CommandMessage) -> None:
+    async def _handle_command(self, msg: CommandMessage) -> None:
         """Handle an incoming command from the client."""
         self._logger.debug("Handling command %s", msg.command)
-        if self.base_url:
-            _BASE_URL.set(self.base_url)
 
         # work out handler for the given path/command
         handler = self.mass.command_handlers.get(msg.command)
 
         if handler is None:
-            self._send_message(
+            await self._send_message(
                 ErrorResultMessage(
                     msg.message_id,
                     InvalidCommand.error_code,
@@ -408,28 +463,28 @@ class WebsocketClientHandler:
     async def _run_handler(self, handler: APICommandHandler, msg: CommandMessage) -> None:
         try:
             args = parse_arguments(handler.signature, handler.type_hints, msg.args)
-            result = handler.target(**args)
+            result: Any = handler.target(**args)
             if hasattr(result, "__anext__"):
                 # handle async generator (for really large listings)
-                iterator = result
-                result: list[Any] = []
-                async for item in iterator:
-                    result.append(item)
-                    if len(result) >= 500:
-                        self._send_message(
-                            SuccessResultMessage(msg.message_id, result, partial=True)
+                items: list[Any] = []
+                async for item in result:
+                    items.append(item)
+                    if len(items) >= 500:
+                        await self._send_message(
+                            SuccessResultMessage(msg.message_id, items, partial=True)
                         )
-                        result = []
+                        items = []
+                result = items
             elif asyncio.iscoroutine(result):
                 result = await result
-            self._send_message(SuccessResultMessage(msg.message_id, result))
+            await self._send_message(SuccessResultMessage(msg.message_id, result))
         except Exception as err:
             if self._logger.isEnabledFor(logging.DEBUG):
                 self._logger.exception("Error handling message: %s", msg)
             else:
                 self._logger.error("Error handling message: %s: %s", msg.command, str(err))
             err_msg = str(err) or err.__class__.__name__
-            self._send_message(
+            await self._send_message(
                 ErrorResultMessage(msg.message_id, getattr(err, "error_code", 999), err_msg)
             )
 
@@ -441,19 +496,36 @@ class WebsocketClientHandler:
                 if (process := await self._to_write.get()) is None:
                     break
 
-                if not isinstance(process, str):
+                if callable(process):
                     message: str = process()
                 else:
                     message = process
                 self._logger.log(VERBOSE_LOG_LEVEL, "Writing: %s", message)
                 await self.wsock.send_str(message)
 
-    def _send_message(self, message: MessageType) -> None:
-        """Send a message to the client.
+    async def _send_message(self, message: MessageType) -> None:
+        """Send a message to the client (for large response messages).
 
+        Runs JSON serialization in executor to avoid blocking for large messages.
         Closes connection if the client is not reading the messages.
 
         Async friendly.
+        """
+        # Run JSON serialization in executor to avoid blocking for large messages
+        loop = asyncio.get_running_loop()
+        _message = await loop.run_in_executor(None, message.to_json)
+
+        try:
+            self._to_write.put_nowait(_message)
+        except asyncio.QueueFull:
+            self._logger.error("Client exceeded max pending messages: %s", MAX_PENDING_MSG)
+
+            self._cancel()
+
+    def _send_message_sync(self, message: MessageType) -> None:
+        """Send a message from a sync context (for small messages like events).
+
+        Serializes inline without executor overhead since events are typically small.
         """
         _message = message.to_json()
 

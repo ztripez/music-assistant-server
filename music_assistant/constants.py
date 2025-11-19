@@ -11,7 +11,10 @@ from music_assistant_models.config_entries import (
 from music_assistant_models.enums import ConfigEntryType, ContentType, HidePlayerOption
 from music_assistant_models.media_items import AudioFormat
 
-API_SCHEMA_VERSION: Final[int] = 26
+APPLICATION_NAME: Final = "Music Assistant"
+
+
+API_SCHEMA_VERSION: Final[int] = 27
 MIN_SCHEMA_VERSION: Final[int] = 24
 
 
@@ -43,6 +46,7 @@ CONF_PROVIDERS: Final[str] = "providers"
 CONF_PLAYERS: Final[str] = "players"
 CONF_CORE: Final[str] = "core"
 CONF_PATH: Final[str] = "path"
+CONF_NAME: Final[str] = "name"
 CONF_USERNAME: Final[str] = "username"
 CONF_PASSWORD: Final[str] = "password"
 CONF_VOLUME_NORMALIZATION: Final[str] = "volume_normalization"
@@ -52,6 +56,7 @@ CONF_DEPRECATED_EQ_BASS: Final[str] = "eq_bass"
 CONF_DEPRECATED_EQ_MID: Final[str] = "eq_mid"
 CONF_DEPRECATED_EQ_TREBLE: Final[str] = "eq_treble"
 CONF_PLAYER_DSP: Final[str] = "player_dsp"
+CONF_PLAYER_DSP_PRESETS: Final[str] = "player_dsp_presets"
 CONF_OUTPUT_CHANNELS: Final[str] = "output_channels"
 CONF_FLOW_MODE: Final[str] = "flow_mode"
 CONF_LOG_LEVEL: Final[str] = "log_level"
@@ -61,8 +66,9 @@ CONF_BIND_IP: Final[str] = "bind_ip"
 CONF_BIND_PORT: Final[str] = "bind_port"
 CONF_PUBLISH_IP: Final[str] = "publish_ip"
 CONF_AUTO_PLAY: Final[str] = "auto_play"
-CONF_CROSSFADE: Final[str] = "crossfade"
+CONF_DEPRECATED_CROSSFADE: Final[str] = "crossfade"
 CONF_GROUP_MEMBERS: Final[str] = "group_members"
+CONF_DYNAMIC_GROUP_MEMBERS: Final[str] = "dynamic_members"
 CONF_HIDE_PLAYER_IN_UI: Final[str] = "hide_player_in_ui"
 CONF_EXPOSE_PLAYER_TO_HA: Final[str] = "expose_player_to_ha"
 CONF_SYNC_ADJUST: Final[str] = "sync_adjust"
@@ -71,6 +77,7 @@ CONF_ANNOUNCE_VOLUME_STRATEGY: Final[str] = "announce_volume_strategy"
 CONF_ANNOUNCE_VOLUME: Final[str] = "announce_volume"
 CONF_ANNOUNCE_VOLUME_MIN: Final[str] = "announce_volume_min"
 CONF_ANNOUNCE_VOLUME_MAX: Final[str] = "announce_volume_max"
+CONF_PRE_ANNOUNCE_CHIME_URL: Final[str] = "pre_announcement_chime_url"
 CONF_ICON: Final[str] = "icon"
 CONF_LANGUAGE: Final[str] = "language"
 CONF_SAMPLE_RATES: Final[str] = "sample_rates"
@@ -86,6 +93,7 @@ CONF_VOLUME_CONTROL: Final[str] = "volume_control"
 CONF_MUTE_CONTROL: Final[str] = "mute_control"
 CONF_OUTPUT_CODEC: Final[str] = "output_codec"
 CONF_ALLOW_AUDIO_CACHE: Final[str] = "allow_audio_cache"
+CONF_SMART_FADES_MODE: Final[str] = "smart_fades_mode"
 
 
 # config default values
@@ -110,11 +118,12 @@ DB_TABLE_ALBUM_TRACKS: Final[str] = "album_tracks"
 DB_TABLE_TRACK_ARTISTS: Final[str] = "track_artists"
 DB_TABLE_ALBUM_ARTISTS: Final[str] = "album_artists"
 DB_TABLE_LOUDNESS_MEASUREMENTS: Final[str] = "loudness_measurements"
+DB_TABLE_SMART_FADES_ANALYSIS: Final[str] = "smart_fades_analysis"
 
 
 # all other
 MASS_LOGO_ONLINE: Final[str] = (
-    "https://github.com/home-assistant/brands/blob/master/core_integrations/music_assistant/icon%402x.png"
+    "https://github.com/music-assistant/server/blob/dev/music_assistant/logo.png"
 )
 ENCRYPT_SUFFIX = "_encrypted_"
 CONFIGURABLE_CORE_CONTROLLERS = (
@@ -128,7 +137,7 @@ CONFIGURABLE_CORE_CONTROLLERS = (
 )
 VERBOSE_LOG_LEVEL: Final[int] = 5
 PROVIDERS_WITH_SHAREABLE_URLS = ("spotify", "qobuz")
-
+SYNCGROUP_PREFIX: Final[str] = "syncgroup_"
 
 ####### REUSABLE CONFIG ENTRIES #######
 
@@ -274,17 +283,18 @@ CONF_ENTRY_DEPRECATED_EQ_TREBLE = ConfigEntry(
 )
 
 
-CONF_ENTRY_CROSSFADE = ConfigEntry(
-    key=CONF_CROSSFADE,
+CONF_ENTRY_DEPRECATED_CROSSFADE = ConfigEntry(
+    key=CONF_DEPRECATED_CROSSFADE,
     type=ConfigEntryType.BOOLEAN,
     label="Enable crossfade",
     default_value=False,
     description="Enable a crossfade transition between (queue) tracks.",
     category="audio",
+    hidden=True,  # Hidden, use Smart Fades instead
 )
 
 CONF_ENTRY_CROSSFADE_FLOW_MODE_REQUIRED = ConfigEntry(
-    key=CONF_CROSSFADE,
+    key=CONF_DEPRECATED_CROSSFADE,
     type=ConfigEntryType.BOOLEAN,
     label="Enable crossfade",
     default_value=False,
@@ -294,15 +304,34 @@ CONF_ENTRY_CROSSFADE_FLOW_MODE_REQUIRED = ConfigEntry(
     depends_on=CONF_FLOW_MODE,
 )
 
+CONF_ENTRY_SMART_FADES_MODE = ConfigEntry(
+    key=CONF_SMART_FADES_MODE,
+    type=ConfigEntryType.STRING,
+    label="Enable Smart Fades",
+    options=[
+        ConfigValueOption("Disabled", "disabled"),
+        ConfigValueOption("Smart Crossfade", "smart_crossfade"),
+        ConfigValueOption("Standard Crossfade", "standard_crossfade"),
+    ],
+    default_value="disabled",
+    description="Select the crossfade mode to use when transitioning between tracks.\n\n"
+    "- 'Smart Crossfade': Uses beat matching and EQ filters to create smooth transitions"
+    " between tracks.\n"
+    "- 'Standard Crossfade': Regular crossfade that crossfades the last/first x-seconds of a "
+    "track.",
+    category="audio",
+)
+
 CONF_ENTRY_CROSSFADE_DURATION = ConfigEntry(
     key=CONF_CROSSFADE_DURATION,
     type=ConfigEntryType.INTEGER,
     range=(1, 15),
     default_value=8,
-    label="Crossfade duration",
-    description="Duration in seconds of the crossfade between tracks (if enabled)",
-    depends_on=CONF_CROSSFADE,
-    category="advanced",
+    label="Fallback crossfade duration",
+    description="Duration in seconds of the standard crossfade between tracks when"
+    " 'Enable Smart Fade' has been set to 'Standard Crossfade' or when a Smart Fade fails",
+    depends_on=CONF_SMART_FADES_MODE,
+    category="audio",
 )
 
 CONF_ENTRY_HIDE_PLAYER_IN_UI = ConfigEntry(
@@ -473,6 +502,8 @@ CONF_ENTRY_ANNOUNCE_VOLUME_MAX = ConfigEntry(
 CONF_ENTRY_ANNOUNCE_VOLUME_MAX_HIDDEN = ConfigEntry.from_dict(
     {**CONF_ENTRY_ANNOUNCE_VOLUME_MAX.to_dict(), "hidden": True}
 )
+
+
 HIDDEN_ANNOUNCE_VOLUME_CONFIG_ENTRIES = (
     CONF_ENTRY_ANNOUNCE_VOLUME_HIDDEN,
     CONF_ENTRY_ANNOUNCE_VOLUME_MIN_HIDDEN,
@@ -549,6 +580,9 @@ CONF_ENTRY_HTTP_PROFILE_DEFAULT_1 = ConfigEntry.from_dict(
 CONF_ENTRY_HTTP_PROFILE_DEFAULT_2 = ConfigEntry.from_dict(
     {**CONF_ENTRY_HTTP_PROFILE.to_dict(), "default_value": "no_content_length"}
 )
+CONF_ENTRY_HTTP_PROFILE_DEFAULT_3 = ConfigEntry.from_dict(
+    {**CONF_ENTRY_HTTP_PROFILE.to_dict(), "default_value": "forced_content_length"}
+)
 
 CONF_ENTRY_HTTP_PROFILE_FORCED_1 = ConfigEntry.from_dict(
     {**CONF_ENTRY_HTTP_PROFILE_DEFAULT_1.to_dict(), "hidden": True}
@@ -596,6 +630,18 @@ CONF_ENTRY_ICY_METADATA_HIDDEN_DISABLED = ConfigEntry.from_dict(
     }
 )
 
+CONF_ENTRY_SUPPORT_CROSSFADE_DIFFERENT_SAMPLE_RATES = ConfigEntry(
+    key="crossfade_different_sample_rates",
+    type=ConfigEntryType.BOOLEAN,
+    label="Allow crossfade between tracks with different sample rates",
+    description="Enable this option to allow crossfading between tracks that have different "
+    "sample rates (e.g. 44.1kHz to 48kHz). \n\n "
+    "Only enable this option if your player actually support this, otherwise you may "
+    "experience audio glitches during crossfades.",
+    default_value=False,
+    category="advanced",
+)
+
 CONF_ENTRY_WARN_PREVIEW = ConfigEntry(
     key="preview_note",
     type=ConfigEntryType.ALERT,
@@ -623,6 +669,215 @@ CONF_ENTRY_MANUAL_DISCOVERY_IPS = ConfigEntry(
     default_value=[],
     required=False,
     multi_value=True,
+)
+
+CONF_ENTRY_LIBRARY_SYNC_ARTISTS = ConfigEntry(
+    key="library_sync_artists",
+    type=ConfigEntryType.BOOLEAN,
+    label="Sync Library Artists from this provider to Music Assistant",
+    description="Whether to synchronize (favourited/in-library) Artists from this "
+    "provider to the Music Assistant Library.",
+    default_value=True,
+    category="sync_options",
+)
+CONF_ENTRY_LIBRARY_SYNC_ALBUMS = ConfigEntry(
+    key="library_sync_albums",
+    type=ConfigEntryType.BOOLEAN,
+    label="Sync Library Albums from this provider to Music Assistant",
+    description="Whether to import (favourited/in-library) Albums from this "
+    "provider to the Music Assistant Library. \n\n"
+    "Please note that by adding an Album into the Music Assistant library, "
+    "the Album Artists will always be imported as well.",
+    default_value=True,
+    category="sync_options",
+)
+CONF_ENTRY_LIBRARY_SYNC_TRACKS = ConfigEntry(
+    key="library_sync_tracks",
+    type=ConfigEntryType.BOOLEAN,
+    label="Sync Library Tracks from this provider to Music Assistant",
+    description="Whether to import (favourited/in-library) Tracks from this "
+    "provider to the Music Assistant Library. \n\n"
+    "Please note that by adding a Track into the Music Assistant library, "
+    "the Track's Artists and Album will always be imported as well.",
+    default_value=True,
+    category="sync_options",
+)
+CONF_ENTRY_LIBRARY_SYNC_PLAYLISTS = ConfigEntry(
+    key="library_sync_playlists",
+    type=ConfigEntryType.BOOLEAN,
+    label="Sync Library Playlists from this provider to Music Assistant",
+    description="Whether to import (favourited/in-library) Playlists from this "
+    "provider to the Music Assistant Library.",
+    default_value=True,
+    category="sync_options",
+)
+CONF_ENTRY_LIBRARY_SYNC_PODCASTS = ConfigEntry(
+    key="library_sync_podcasts",
+    type=ConfigEntryType.BOOLEAN,
+    label="Sync Library Podcasts from this provider to Music Assistant",
+    description="Whether to import (favourited/in-library) Podcasts from this "
+    "provider to the Music Assistant Library.",
+    default_value=True,
+    category="sync_options",
+)
+CONF_ENTRY_LIBRARY_SYNC_AUDIOBOOKS = ConfigEntry(
+    key="library_sync_audiobooks",
+    type=ConfigEntryType.BOOLEAN,
+    label="Sync Library Audiobooks from this provider to Music Assistant",
+    description="Whether to import (favourited/in-library) Audiobooks from this "
+    "provider to the Music Assistant Library.",
+    default_value=True,
+    category="sync_options",
+)
+CONF_ENTRY_LIBRARY_SYNC_RADIOS = ConfigEntry(
+    key="library_sync_radios",
+    type=ConfigEntryType.BOOLEAN,
+    label="Sync Library Radios from this provider to Music Assistant",
+    description="Whether to import (favourited/in-library) Radio stations from this "
+    "provider to the Music Assistant Library.",
+    default_value=True,
+    category="sync_options",
+)
+CONF_ENTRY_LIBRARY_SYNC_ALBUM_TRACKS = ConfigEntry(
+    key="library_sync_album_tracks",
+    type=ConfigEntryType.BOOLEAN,
+    label="Import album tracks",
+    description="By default, when importing Albums into the library, "
+    "only the Album itself will be imported into the Music Assistant Library, "
+    "allowing you to manually browse and select which tracks you want to import. \n\n"
+    "If you want to override this default behavior, "
+    "you can use this configuration option.\n\n"
+    "Please note that some (streaming) providers may already define this behavior unsolicited, "
+    "by automatically adding all tracks from the album to their library/favorites.",
+    default_value=False,
+    category="sync_options",
+)
+CONF_ENTRY_LIBRARY_SYNC_PLAYLIST_TRACKS = ConfigEntry(
+    key="library_sync_playlist_tracks",
+    type=ConfigEntryType.STRING,
+    label="Import playlist tracks",
+    description="By default, when importing Playlists into the library, "
+    "only the Playlist itself will be imported into the Music Assistant Library, "
+    "allowing you to browse and play the Playlist and optionally add any individual "
+    "tracks of the Playlist to the Music Assistant Library manually. \n\n"
+    "Use this configuration option to override this default behavior, "
+    "by specifying the Playlists for which you'd like to import all tracks.\n"
+    "You can either enter the Playlist name (case sensitive) or the Playlist URI.",
+    default_value=[],
+    category="sync_options",
+    multi_value=True,
+)
+
+CONF_ENTRY_LIBRARY_SYNC_BACK = ConfigEntry(
+    key="library_sync_back",
+    type=ConfigEntryType.BOOLEAN,
+    label="Sync back library additions/removals (2-way sync)",
+    description="Specify the behavior if an item is manually added to "
+    "(or removed from) the Music Assistant Library. \n"
+    "Should we synchronise that action back to the provider?\n\n"
+    "Please note that if you you don't sync back to the provider and you have enabled "
+    "automatic sync/import for this provider, a removed item may reappear in the library "
+    "the next time a sync is performed.",
+    default_value=True,
+    category="sync_options",
+)
+
+
+CONF_PROVIDER_SYNC_INTERVAL_OPTIONS = [
+    ConfigValueOption("Disable automatic sync for this mediatype", 0),
+    ConfigValueOption("Every 30 minutes", 30),
+    ConfigValueOption("Every hour", 60),
+    ConfigValueOption("Every 3 hours", 180),
+    ConfigValueOption("Every 6 hours", 360),
+    ConfigValueOption("Every 12 hours", 720),
+    ConfigValueOption("Every 24 hours", 1440),
+    ConfigValueOption("Every 36 hours", 2160),
+    ConfigValueOption("Every 48 hours", 2880),
+    ConfigValueOption("Once a week", 10080),
+]
+CONF_ENTRY_PROVIDER_SYNC_INTERVAL_ARTISTS = ConfigEntry(
+    key="provider_sync_interval_artists",
+    type=ConfigEntryType.INTEGER,
+    label="Automatic Sync Interval for Artists",
+    description="The interval at which the Artists are synced to the library for this provider.",
+    options=CONF_PROVIDER_SYNC_INTERVAL_OPTIONS,
+    default_value=720,
+    category="sync_options",
+    depends_on=CONF_ENTRY_LIBRARY_SYNC_ARTISTS.key,
+    depends_on_value_not="no_import",
+    required=True,
+)
+CONF_ENTRY_PROVIDER_SYNC_INTERVAL_ALBUMS = ConfigEntry(
+    key="provider_sync_interval_albums",
+    type=ConfigEntryType.INTEGER,
+    label="Automatic Sync Interval for Albums",
+    description="The interval at which the Albums are synced to the library for this provider.",
+    options=CONF_PROVIDER_SYNC_INTERVAL_OPTIONS,
+    default_value=720,
+    category="sync_options",
+    depends_on=CONF_ENTRY_LIBRARY_SYNC_ALBUMS.key,
+    depends_on_value_not="no_import",
+    required=True,
+)
+CONF_ENTRY_PROVIDER_SYNC_INTERVAL_TRACKS = ConfigEntry(
+    key="provider_sync_interval_tracks",
+    type=ConfigEntryType.INTEGER,
+    label="Automatic Sync Interval for Tracks",
+    description="The interval at which the Tracks are synced to the library for this provider.",
+    options=CONF_PROVIDER_SYNC_INTERVAL_OPTIONS,
+    default_value=720,
+    category="sync_options",
+    depends_on=CONF_ENTRY_LIBRARY_SYNC_TRACKS.key,
+    depends_on_value_not="no_import",
+    required=True,
+)
+CONF_ENTRY_PROVIDER_SYNC_INTERVAL_PLAYLISTS = ConfigEntry(
+    key="provider_sync_interval_playlists",
+    type=ConfigEntryType.INTEGER,
+    label="Automatic Sync Interval for Playlists",
+    description="The interval at which the Playlists are synced to the library for this provider.",
+    options=CONF_PROVIDER_SYNC_INTERVAL_OPTIONS,
+    default_value=720,
+    category="sync_options",
+    depends_on=CONF_ENTRY_LIBRARY_SYNC_PLAYLISTS.key,
+    depends_on_value_not="no_import",
+    required=True,
+)
+CONF_ENTRY_PROVIDER_SYNC_INTERVAL_PODCASTS = ConfigEntry(
+    key="provider_sync_interval_podcasts",
+    type=ConfigEntryType.INTEGER,
+    label="Automatic Sync Interval for Podcasts",
+    description="The interval at which the Podcasts are synced to the library for this provider.",
+    options=CONF_PROVIDER_SYNC_INTERVAL_OPTIONS,
+    default_value=720,
+    category="sync_options",
+    depends_on=CONF_ENTRY_LIBRARY_SYNC_PODCASTS.key,
+    depends_on_value_not="no_import",
+    required=True,
+)
+CONF_ENTRY_PROVIDER_SYNC_INTERVAL_AUDIOBOOKS = ConfigEntry(
+    key="provider_sync_interval_audiobooks",
+    type=ConfigEntryType.INTEGER,
+    label="Automatic Sync Interval for Audiobooks",
+    description="The interval at which the Audiobooks are synced to the library for this provider.",
+    options=CONF_PROVIDER_SYNC_INTERVAL_OPTIONS,
+    default_value=720,
+    category="sync_options",
+    depends_on=CONF_ENTRY_LIBRARY_SYNC_AUDIOBOOKS.key,
+    depends_on_value_not="no_import",
+    required=True,
+)
+CONF_ENTRY_PROVIDER_SYNC_INTERVAL_RADIOS = ConfigEntry(
+    key="provider_sync_interval_radios",
+    type=ConfigEntryType.INTEGER,
+    label="Automatic Sync Interval for Radios",
+    description="The interval at which the Radios are synced to the library for this provider.",
+    options=CONF_PROVIDER_SYNC_INTERVAL_OPTIONS,
+    default_value=720,
+    category="sync_options",
+    depends_on=CONF_ENTRY_LIBRARY_SYNC_RADIOS.key,
+    depends_on_value_not="no_import",
+    required=True,
 )
 
 
@@ -673,43 +928,56 @@ def create_sample_rates_config_entry(
 
 
 DEFAULT_STREAM_HEADERS = {
-    "Server": "Music Assistant",
+    "Server": APPLICATION_NAME,
     "transferMode.dlna.org": "Streaming",
-    "contentFeatures.dlna.org": "DLNA.ORG_OP=00;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=0d500000000000000000000000000000",  # noqa: E501
+    "contentFeatures.dlna.org": "DLNA.ORG_OP=01;DLNA.ORG_FLAGS=01700000000000000000000000000000",
     "Cache-Control": "no-cache",
     "Pragma": "no-cache",
+    "icy-name": APPLICATION_NAME,
 }
 ICY_HEADERS = {
-    "icy-name": "Music Assistant",
-    "icy-description": "Music Assistant - Your personal music assistant",
+    "icy-name": APPLICATION_NAME,
+    "icy-description": f"{APPLICATION_NAME} - Your personal music assistant",
     "icy-version": "1",
     "icy-logo": MASS_LOGO_ONLINE,
 }
 
-DEFAULT_PCM_FORMAT = AudioFormat(
+INTERNAL_PCM_FORMAT = AudioFormat(
     # always prefer float32 as internal pcm format to create headroom
     # for filters such as dsp and volume normalization
     content_type=ContentType.PCM_F32LE,
-    sample_rate=48000,
-    bit_depth=32,
-    channels=2,
+    bit_depth=32,  # related to float32
+    sample_rate=48000,  # static for flow stream, dynamic for anything else
+    channels=2,  # static for flow stream, dynamic for anything else
 )
 
+# extra data / extra attributes keys
+ATTR_FAKE_POWER: Final[str] = "fake_power"
+ATTR_FAKE_VOLUME: Final[str] = "fake_volume_level"
+ATTR_FAKE_MUTE: Final[str] = "fake_volume_muted"
+ATTR_ANNOUNCEMENT_IN_PROGRESS: Final[str] = "announcement_in_progress"
+ATTR_PREVIOUS_VOLUME: Final[str] = "previous_volume"
+ATTR_LAST_POLL: Final[str] = "last_poll"
+ATTR_GROUP_MEMBERS: Final[str] = "group_members"
+ATTR_ELAPSED_TIME: Final[str] = "elapsed_time"
+ATTR_ENABLED: Final[str] = "enabled"
+ATTR_AVAILABLE: Final[str] = "available"
 
-# CACHE categories
+# Album type detection patterns
+LIVE_INDICATORS = [
+    r"\bunplugged\b",
+    r"\bin concert\b",
+    r"\bon stage\b",
+    r"\blive\b",
+]
 
-CACHE_CATEGORY_DEFAULT: Final[int] = 0
-CACHE_CATEGORY_MUSIC_SEARCH: Final[int] = 1
-CACHE_CATEGORY_MUSIC_ALBUM_TRACKS: Final[int] = 2
-CACHE_CATEGORY_MUSIC_ARTIST_TRACKS: Final[int] = 3
-CACHE_CATEGORY_MUSIC_ARTIST_ALBUMS: Final[int] = 4
-CACHE_CATEGORY_MUSIC_PLAYLIST_TRACKS: Final[int] = 5
-CACHE_CATEGORY_MUSIC_PROVIDER_ITEM: Final[int] = 6
-CACHE_CATEGORY_PLAYER_QUEUE_STATE: Final[int] = 7
-CACHE_CATEGORY_MEDIA_INFO: Final[int] = 8
-CACHE_CATEGORY_LIBRARY_ITEMS: Final[int] = 9
-CACHE_CATEGORY_PLAYERS: Final[int] = 10
-CACHE_CATEGORY_RECOMMENDATIONS: Final[int] = 11
-
-# CACHE base keys
-CACHE_KEY_PLAYER_POWER: Final[str] = "player_power"
+SOUNDTRACK_INDICATORS = [
+    r"\bsoundtrack\b",  # Catches all soundtrack variations
+    r"\bmusic from the .* motion picture\b",
+    r"\boriginal score\b",
+    r"\bthe score\b",
+    r"\bfilm score\b",
+    r"(^|\b)score:\s*",  # e.g., "Score: The Two Towers"
+    r"\bfrom the film\b",
+    r"\boriginal.*cast.*recording\b",
+]

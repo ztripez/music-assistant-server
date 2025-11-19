@@ -42,19 +42,39 @@ async def get_album(prov_album_id: str, language: str = "en") -> dict[str, str]:
 
     def _get_album():
         ytm = ytmusicapi.YTMusic(language=language)
+        album = ytm.get_album(browseId=prov_album_id)
+        if "audioPlaylistId" in album:
+            # Track id's from album tracks do not match with actual album tracks. E.g. a track
+            # points to the videoId of the original version, while we want the album version
+            album_playlist = ytm.get_playlist(playlistId=album["audioPlaylistId"], limit=None)
+            # Do some basic checks
+            if len(album_playlist.get("tracks", [])) != len(album.get("tracks", [])):
+                return album
+            # Move the correct track info to the album tracks
+            playlist_tracks_by_title = {t.get("title"): t for t in album_playlist.get("tracks", [])}
+            for album_track in album.get("tracks", []):
+                if playlist_track := playlist_tracks_by_title.get(album_track.get("title")):
+                    album_track["videoId"] = playlist_track["videoId"]
+                    album_track["isAvailable"] = playlist_track.get("isAvailable", True)
+                    album_track["likeStatus"] = playlist_track.get("likeStatus", "INDIFFERENT")
+            return album
         return ytm.get_album(browseId=prov_album_id)
 
     return await asyncio.to_thread(_get_album)
 
 
 async def get_playlist(
-    prov_playlist_id: str, headers: dict[str, str], language: str = "en", user: str | None = None
+    prov_playlist_id: str,
+    headers: dict[str, str],
+    language: str = "en",
+    user: str | None = None,
+    limit=None,
 ) -> dict[str, str]:
     """Async wrapper around the ytmusicapi get_playlist function."""
 
     def _get_playlist():
         ytm = ytmusicapi.YTMusic(auth=headers, language=language, user=user)
-        playlist = ytm.get_playlist(playlistId=prov_playlist_id, limit=None)
+        playlist = ytm.get_playlist(playlistId=prov_playlist_id, limit=limit)
         playlist["checksum"] = get_playlist_checksum(playlist)
         # Fix missing playlist id in some edge cases
         playlist["id"] = prov_playlist_id if not playlist.get("id") else playlist["id"]

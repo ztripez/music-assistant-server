@@ -29,7 +29,7 @@ LOOP_STATUS_MAP_REVERSE = {v: k for k, v in LOOP_STATUS_MAP.items()}
 MessageCallback = Callable[[dict[str, Any]], None]
 
 
-def send(json_msg: dict[str, Any]):
+def send(json_msg: dict[str, Any]) -> None:
     """Send a message to stdout."""
     sys.stdout.write(json.dumps(json_msg))
     sys.stdout.write("\n")
@@ -47,8 +47,8 @@ class MusicAssistantControl:
         self.api_port = api_port
         self.streamserver_ip = streamserver_ip
         self.streamserver_port = streamserver_port
-        self._metadata = {}
-        self._properties = {}
+        self._metadata: dict[str, Any] = {}
+        self._properties: dict[str, Any] = {}
         self._request_callbacks: dict[str, MessageCallback] = {}
         self._seek_offset = 0.0
         self.websocket = websocket.WebSocketApp(
@@ -63,7 +63,7 @@ class MusicAssistantControl:
         self.websocket_thread.name = "massControl"
         self.websocket_thread.start()
 
-    def stop(self):
+    def stop(self) -> None:
         """Stop the websocket thread."""
         self._stopped = True
         self.websocket.close()
@@ -115,7 +115,7 @@ class MusicAssistantControl:
         elif cmd == "SetProperty":
             properties = request["params"]
             logger.debug(f"SetProperty: {property}")
-            if "shuffle" in property:
+            if "shuffle" in properties:
                 self.send_request(
                     "player_queues/shuffle",
                     queue_id=queue_id,
@@ -134,7 +134,7 @@ class MusicAssistantControl:
             #     self.send_request("core.mixer.set_mute", {"mute": properties["mute"]})
         elif cmd == "GetProperties":
 
-            def handle_result(result: dict[str, Any]):
+            def handle_result(result: dict[str, Any]) -> None:
                 send(
                     {
                         "jsonrpc": "2.0",
@@ -173,7 +173,7 @@ class MusicAssistantControl:
         """Send stream ready notification to Snapcast."""
         send({"jsonrpc": "2.0", "method": "Plugin.Stream.Ready"})
 
-    def _websocket_loop(self):
+    def _websocket_loop(self) -> None:
         logger.info("Started websocket loop")
         while not self._stopped:
             try:
@@ -201,8 +201,8 @@ class MusicAssistantControl:
             "rate": 1.0,
             "position": mass_queue_details["elapsed_time"],
         }
+        image_url: str | None = None
         if current_queue_item and (media_item := current_queue_item.get("media_item")):
-            image_url: str | None = None
             if image_path := current_queue_item.get("image", {}).get("path"):
                 image_path_encoded = urllib.parse.quote_plus(image_path)
                 image_url = (
@@ -235,7 +235,7 @@ class MusicAssistantControl:
 
         return properties
 
-    def _on_ws_message(self, ws, message: str):
+    def _on_ws_message(self, ws: websocket.WebSocket, message: str) -> None:
         # TODO: error handling
         logger.debug("websocket message received: %s", message)
         data = json.loads(message)
@@ -257,19 +257,21 @@ class MusicAssistantControl:
                 self.send_snapcast_properties_notification(properties)
                 return
 
-    def _on_ws_error(self, ws, error):
+    def _on_ws_error(self, ws: websocket.WebSocket, error: Exception | str) -> None:
         logger.error("Websocket error")
         logger.error(error)
 
-    def _on_ws_open(self, ws):
+    def _on_ws_open(self, ws: websocket.WebSocket) -> None:
         logger.info("Snapcast RPC websocket opened")
         self.send_snapcast_stream_ready_notification()
 
-    def _on_ws_close(self, ws, close_status_code, close_msg):
+    def _on_ws_close(
+        self, ws: websocket.WebSocket, close_status_code: int | None, close_msg: str | None
+    ) -> None:
         logger.info("Snapcast RPC websocket closed")
 
     def send_request(
-        self, command: str, callback: MessageCallback | None = None, **args: dict[str, Any]
+        self, command: str, callback: MessageCallback | None = None, **args: str | float
     ) -> None:
         """Send request to Music Assistant."""
         msg_id = shortuuid.random(10)
@@ -288,8 +290,9 @@ if __name__ == "__main__":
     # Parse command line
     queue_id = None
     api_port = None
-    streamserver_ip = None
-    streamserver_port = None
+    streamserver_ip: str | None = None
+    streamserver_port: str | None = None
+    stream_id: str | None = None
     for arg in sys.argv:
         if arg.startswith("--stream="):
             stream_id = arg.split("=")[1]
@@ -321,6 +324,8 @@ if __name__ == "__main__":
         "Initializing for stream_id %s, queue_id %s and api_port %s", stream_id, queue_id, api_port
     )
 
+    assert streamserver_ip is not None  # for type checking
+    assert streamserver_port is not None
     ctrl = MusicAssistantControl(queue_id, streamserver_ip, int(streamserver_port), int(api_port))
 
     # keep listening for messages on stdin and forward them

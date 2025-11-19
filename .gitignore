@@ -10,6 +10,7 @@ build/
 dist/
 venv/
 .venv
+.venv*
 .mypy_cache/
 .tox/
 *.egg-info/
@@ -17,3 +18,4 @@ venv/
 .history
 .idea
 .coverage
+uv.lock

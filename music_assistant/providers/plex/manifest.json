@@ -1,14 +1,11 @@
 {
   "type": "music",
   "domain": "plex",
+  "stage": "alpha",
   "name": "Plex Media Server Library",
-  "description": "Support for the Plex streaming provider in Music Assistant.",
-  "codeowners": [
-    "@micha91"
-  ],
-  "requirements": [
-    "plexapi==4.17.0"
-  ],
+  "description": "Stream your personal music, podcasts, and radio via your Plex media server.",
+  "codeowners": ["@micha91", "@anatosun"],
+  "requirements": ["plexapi==4.17.1"],
   "documentation": "https://music-assistant.io/music-providers/plex/",
   "multi_instance": true
 }
