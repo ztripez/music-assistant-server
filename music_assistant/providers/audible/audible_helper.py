@@ -1035,6 +1035,209 @@ class AudibleHelper:
 
         return episode
 
+    async def get_authors(self) -> dict[str, str]:
+        """Get all unique authors from the library.
+
+        Returns dict mapping author ASIN to author name.
+        """
+        authors: dict[str, str] = {}
+        library = await self._call_api(
+            "library",
+            use_cache=True,
+            response_groups="contributors,product_attrs",
+            num_results=1000,
+        )
+        for item in library.get("items", []):
+            if item.get("content_delivery_type") not in AUDIOBOOK_CONTENT_TYPES:
+                continue
+            for author in item.get("authors") or []:
+                asin = author.get("asin")
+                name = author.get("name")
+                if asin and name:
+                    authors[asin] = name
+        return authors
+
+    async def get_series(self) -> dict[str, str]:
+        """Get all unique series from the library.
+
+        Returns dict mapping series ASIN to series title.
+        """
+        series: dict[str, str] = {}
+        library = await self._call_api(
+            "library",
+            use_cache=True,
+            response_groups="series,product_attrs",
+            num_results=1000,
+        )
+        for item in library.get("items", []):
+            if item.get("content_delivery_type") not in AUDIOBOOK_CONTENT_TYPES:
+                continue
+            for s in item.get("series") or []:
+                asin = s.get("asin")
+                title = s.get("title")
+                if asin and title:
+                    series[asin] = title
+        return series
+
+    async def get_narrators(self) -> dict[str, str]:
+        """Get all unique narrators from the library.
+
+        Returns dict mapping narrator ASIN to narrator name.
+        """
+        narrators: dict[str, str] = {}
+        library = await self._call_api(
+            "library",
+            use_cache=True,
+            response_groups="contributors,product_attrs",
+            num_results=1000,
+        )
+        for item in library.get("items", []):
+            if item.get("content_delivery_type") not in AUDIOBOOK_CONTENT_TYPES:
+                continue
+            for narrator in item.get("narrators") or []:
+                asin = narrator.get("asin")
+                name = narrator.get("name")
+                if asin and name:
+                    narrators[asin] = name
+        return narrators
+
+    async def get_genres(self) -> set[str]:
+        """Get all unique genres from the library."""
+        genres: set[str] = set()
+        library = await self._call_api(
+            "library",
+            use_cache=True,
+            response_groups="product_attrs",
+            num_results=1000,
+        )
+        for item in library.get("items", []):
+            if item.get("content_delivery_type") not in AUDIOBOOK_CONTENT_TYPES:
+                continue
+            for keyword in item.get("thesaurus_subject_keywords") or []:
+                genres.add(keyword.replace("_", " ").replace("-", " ").title())
+        return genres
+
+    async def get_publishers(self) -> set[str]:
+        """Get all unique publishers from the library."""
+        publishers: set[str] = set()
+        library = await self._call_api(
+            "library",
+            use_cache=True,
+            response_groups="product_attrs",
+            num_results=1000,
+        )
+        for item in library.get("items", []):
+            if item.get("content_delivery_type") not in AUDIOBOOK_CONTENT_TYPES:
+                continue
+            publisher = item.get("publisher_name")
+            if publisher:
+                publishers.add(publisher)
+        return publishers
+
+    async def get_audiobooks_by_author(self, author_asin: str) -> list[Audiobook]:
+        """Get all audiobooks by a specific author, sorted by release date."""
+        audiobooks: list[tuple[str, Audiobook]] = []
+        library = await self._call_api(
+            "library",
+            use_cache=True,
+            response_groups="contributors,media,product_attrs,product_desc,series",
+            num_results=1000,
+        )
+        for item in library.get("items", []):
+            if item.get("content_delivery_type") not in AUDIOBOOK_CONTENT_TYPES:
+                continue
+            for author in item.get("authors") or []:
+                if author.get("asin") == author_asin:
+                    release_date = item.get("release_date") or "0000-00-00"
+                    audiobooks.append((release_date, self._parse_audiobook(item)))
+                    break
+        audiobooks.sort(key=lambda x: x[0], reverse=True)
+        return [book for _, book in audiobooks]
+
+    async def get_audiobooks_by_narrator(self, narrator_asin: str) -> list[Audiobook]:
+        """Get all audiobooks by a specific narrator, sorted by release date."""
+        audiobooks: list[tuple[str, Audiobook]] = []
+        library = await self._call_api(
+            "library",
+            use_cache=True,
+            response_groups="contributors,media,product_attrs,product_desc,series",
+            num_results=1000,
+        )
+        for item in library.get("items", []):
+            if item.get("content_delivery_type") not in AUDIOBOOK_CONTENT_TYPES:
+                continue
+            for narrator in item.get("narrators") or []:
+                if narrator.get("asin") == narrator_asin:
+                    release_date = item.get("release_date") or "0000-00-00"
+                    audiobooks.append((release_date, self._parse_audiobook(item)))
+                    break
+        audiobooks.sort(key=lambda x: x[0], reverse=True)
+        return [book for _, book in audiobooks]
+
+    async def get_audiobooks_by_genre(self, genre: str) -> list[Audiobook]:
+        """Get all audiobooks matching a genre, sorted by release date."""
+        audiobooks: list[tuple[str, Audiobook]] = []
+        genre_key = genre.lower().replace(" ", "_")
+        genre_key_alt = genre.lower().replace(" ", "-")
+        library = await self._call_api(
+            "library",
+            use_cache=True,
+            response_groups="contributors,media,product_attrs,product_desc,series",
+            num_results=1000,
+        )
+        for item in library.get("items", []):
+            if item.get("content_delivery_type") not in AUDIOBOOK_CONTENT_TYPES:
+                continue
+            keywords = item.get("thesaurus_subject_keywords") or []
+            if genre_key in keywords or genre_key_alt in keywords:
+                release_date = item.get("release_date") or "0000-00-00"
+                audiobooks.append((release_date, self._parse_audiobook(item)))
+        audiobooks.sort(key=lambda x: x[0], reverse=True)
+        return [book for _, book in audiobooks]
+
+    async def get_audiobooks_by_publisher(self, publisher: str) -> list[Audiobook]:
+        """Get all audiobooks from a specific publisher, sorted by release date."""
+        audiobooks: list[tuple[str, Audiobook]] = []
+        library = await self._call_api(
+            "library",
+            use_cache=True,
+            response_groups="contributors,media,product_attrs,product_desc,series",
+            num_results=1000,
+        )
+        for item in library.get("items", []):
+            if item.get("content_delivery_type") not in AUDIOBOOK_CONTENT_TYPES:
+                continue
+            if item.get("publisher_name") == publisher:
+                release_date = item.get("release_date") or "0000-00-00"
+                audiobooks.append((release_date, self._parse_audiobook(item)))
+        audiobooks.sort(key=lambda x: x[0], reverse=True)
+        return [book for _, book in audiobooks]
+
+    async def get_audiobooks_by_series(self, series_asin: str) -> list[Audiobook]:
+        """Get all audiobooks in a specific series, ordered by sequence."""
+        audiobooks: list[tuple[float, Audiobook]] = []
+        library = await self._call_api(
+            "library",
+            use_cache=True,
+            response_groups="contributors,media,product_attrs,product_desc,series",
+            num_results=1000,
+        )
+        for item in library.get("items", []):
+            if item.get("content_delivery_type") not in AUDIOBOOK_CONTENT_TYPES:
+                continue
+            for s in item.get("series") or []:
+                if s.get("asin") == series_asin:
+                    sequence = s.get("sequence")
+                    try:
+                        seq_num = float(sequence) if sequence else 999
+                    except (ValueError, TypeError):
+                        seq_num = 999
+                    audiobooks.append((seq_num, self._parse_audiobook(item)))
+                    break
+        # Sort by sequence number
+        audiobooks.sort(key=lambda x: x[0])
+        return [book for _, book in audiobooks]
+
     async def deregister(self) -> None:
         """Deregister this provider from Audible."""
         await asyncio.to_thread(self.client.auth.deregister_device)
