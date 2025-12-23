@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Sequence
 from logging import getLevelName
 from typing import TYPE_CHECKING, cast
 from uuid import uuid4
@@ -18,6 +18,7 @@ from music_assistant_models.config_entries import (
 )
 from music_assistant_models.enums import ConfigEntryType, EventType, MediaType, ProviderFeature
 from music_assistant_models.errors import LoginFailed, MediaNotFoundError
+from music_assistant_models.media_items import BrowseFolder, ItemMapping
 
 from music_assistant.models.music_provider import MusicProvider
 from music_assistant.providers.audible.audible_helper import (
@@ -332,6 +333,187 @@ class Audibleprovider(MusicProvider):
     async def get_audiobook(self, prov_audiobook_id: str) -> Audiobook:
         """Get full audiobook details by id."""
         return await self.helper.get_audiobook(asin=prov_audiobook_id, use_cache=False)
+
+    async def browse(self, path: str) -> Sequence[MediaItemType | ItemMapping | BrowseFolder]:
+        """Browse this provider's items.
+
+        :param path: The path to browse, (e.g. provider_id://authors).
+        """
+        item_path = path.split("://", 1)[1] if "://" in path else ""
+        parts = item_path.split("/") if item_path else []
+
+        # Root - return main folders
+        if not item_path:
+            return self._browse_root(path)
+
+        # Authors listing
+        if parts[0] == "authors":
+            if len(parts) == 1:
+                return await self._browse_authors(path)
+            # Specific author's books
+            return await self._browse_author_books(parts[1])
+
+        # Series listing
+        if parts[0] == "series":
+            if len(parts) == 1:
+                return await self._browse_series(path)
+            # Specific series' books
+            return await self._browse_series_books(parts[1])
+
+        # Narrators listing
+        if parts[0] == "narrators":
+            if len(parts) == 1:
+                return await self._browse_narrators(path)
+            return await self._browse_narrator_books(parts[1])
+
+        # Genres listing
+        if parts[0] == "genres":
+            if len(parts) == 1:
+                return await self._browse_genres(path)
+            return await self._browse_genre_books(parts[1])
+
+        # Publishers listing
+        if parts[0] == "publishers":
+            if len(parts) == 1:
+                return await self._browse_publishers(path)
+            return await self._browse_publisher_books(parts[1])
+
+        # Fall back to base implementation for audiobooks/podcasts
+        return await super().browse(path)
+
+    def _browse_root(self, base_path: str) -> list[BrowseFolder]:
+        """Return root browse folders."""
+        return [
+            BrowseFolder(
+                item_id="audiobooks",
+                provider=self.instance_id,
+                path=f"{base_path}audiobooks",
+                name="",
+                translation_key="audiobooks",
+            ),
+            BrowseFolder(
+                item_id="podcasts",
+                provider=self.instance_id,
+                path=f"{base_path}podcasts",
+                name="",
+                translation_key="podcasts",
+            ),
+            BrowseFolder(
+                item_id="authors",
+                provider=self.instance_id,
+                path=f"{base_path}authors",
+                name="Authors",
+            ),
+            BrowseFolder(
+                item_id="series",
+                provider=self.instance_id,
+                path=f"{base_path}series",
+                name="Series",
+            ),
+            BrowseFolder(
+                item_id="narrators",
+                provider=self.instance_id,
+                path=f"{base_path}narrators",
+                name="Narrators",
+            ),
+            BrowseFolder(
+                item_id="genres",
+                provider=self.instance_id,
+                path=f"{base_path}genres",
+                name="Genres",
+            ),
+            BrowseFolder(
+                item_id="publishers",
+                provider=self.instance_id,
+                path=f"{base_path}publishers",
+                name="Publishers",
+            ),
+        ]
+
+    async def _browse_authors(self, base_path: str) -> list[BrowseFolder]:
+        """Return list of all authors."""
+        authors = await self.helper.get_authors()
+        return [
+            BrowseFolder(
+                item_id=asin,
+                provider=self.instance_id,
+                path=f"{base_path}/{asin}",
+                name=name,
+            )
+            for asin, name in sorted(authors.items(), key=lambda x: x[1])
+        ]
+
+    async def _browse_author_books(self, author_asin: str) -> list[Audiobook]:
+        """Return audiobooks by a specific author."""
+        return await self.helper.get_audiobooks_by_author(author_asin)
+
+    async def _browse_series(self, base_path: str) -> list[BrowseFolder]:
+        """Return list of all series."""
+        series = await self.helper.get_series()
+        return [
+            BrowseFolder(
+                item_id=asin,
+                provider=self.instance_id,
+                path=f"{base_path}/{asin}",
+                name=title,
+            )
+            for asin, title in sorted(series.items(), key=lambda x: x[1])
+        ]
+
+    async def _browse_series_books(self, series_asin: str) -> list[Audiobook]:
+        """Return audiobooks in a specific series."""
+        return await self.helper.get_audiobooks_by_series(series_asin)
+
+    async def _browse_narrators(self, base_path: str) -> list[BrowseFolder]:
+        """Return list of all narrators."""
+        narrators = await self.helper.get_narrators()
+        return [
+            BrowseFolder(
+                item_id=asin,
+                provider=self.instance_id,
+                path=f"{base_path}/{asin}",
+                name=name,
+            )
+            for asin, name in sorted(narrators.items(), key=lambda x: x[1])
+        ]
+
+    async def _browse_narrator_books(self, narrator_asin: str) -> list[Audiobook]:
+        """Return audiobooks by a specific narrator."""
+        return await self.helper.get_audiobooks_by_narrator(narrator_asin)
+
+    async def _browse_genres(self, base_path: str) -> list[BrowseFolder]:
+        """Return list of all genres."""
+        genres = await self.helper.get_genres()
+        return [
+            BrowseFolder(
+                item_id=genre,
+                provider=self.instance_id,
+                path=f"{base_path}/{genre}",
+                name=genre,
+            )
+            for genre in sorted(genres)
+        ]
+
+    async def _browse_genre_books(self, genre: str) -> list[Audiobook]:
+        """Return audiobooks matching a genre."""
+        return await self.helper.get_audiobooks_by_genre(genre)
+
+    async def _browse_publishers(self, base_path: str) -> list[BrowseFolder]:
+        """Return list of all publishers."""
+        publishers = await self.helper.get_publishers()
+        return [
+            BrowseFolder(
+                item_id=publisher,
+                provider=self.instance_id,
+                path=f"{base_path}/{publisher}",
+                name=publisher,
+            )
+            for publisher in sorted(publishers)
+        ]
+
+    async def _browse_publisher_books(self, publisher: str) -> list[Audiobook]:
+        """Return audiobooks from a specific publisher."""
+        return await self.helper.get_audiobooks_by_publisher(publisher)
 
     async def get_library_podcasts(self) -> AsyncGenerator[Podcast, None]:
         """Get all podcasts from the library."""
