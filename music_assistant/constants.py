@@ -14,11 +14,14 @@ from music_assistant_models.media_items import AudioFormat
 APPLICATION_NAME: Final = "Music Assistant"
 
 
-API_SCHEMA_VERSION: Final[int] = 27
-MIN_SCHEMA_VERSION: Final[int] = 24
+API_SCHEMA_VERSION: Final[int] = 28
+MIN_SCHEMA_VERSION: Final[int] = 28
 
 
 MASS_LOGGER_NAME: Final[str] = "music_assistant"
+
+# Home Assistant system user
+HOMEASSISTANT_SYSTEM_USER: Final[str] = "homeassistant_system"
 
 UNKNOWN_ARTIST: Final[str] = "[unknown]"
 UNKNOWN_ARTIST_ID_MBID: Final[str] = "125ec42a-7229-4250-afc5-e057484327fe"
@@ -94,7 +97,11 @@ CONF_MUTE_CONTROL: Final[str] = "mute_control"
 CONF_OUTPUT_CODEC: Final[str] = "output_codec"
 CONF_ALLOW_AUDIO_CACHE: Final[str] = "allow_audio_cache"
 CONF_SMART_FADES_MODE: Final[str] = "smart_fades_mode"
-
+CONF_USE_SSL: Final[str] = "use_ssl"
+CONF_VERIFY_SSL: Final[str] = "verify_ssl"
+CONF_SSL_FINGERPRINT: Final[str] = "ssl_fingerprint"
+CONF_AUTH_ALLOW_SELF_REGISTRATION: Final[str] = "auth_allow_self_registration"
+CONF_ENABLED: Final[str] = "enabled"
 
 # config default values
 DEFAULT_HOST: Final[str] = "0.0.0.0"
@@ -331,6 +338,7 @@ CONF_ENTRY_CROSSFADE_DURATION = ConfigEntry(
     description="Duration in seconds of the standard crossfade between tracks when"
     " 'Enable Smart Fade' has been set to 'Standard Crossfade' or when a Smart Fade fails",
     depends_on=CONF_SMART_FADES_MODE,
+    depends_on_value="standard_crossfade",
     category="audio",
 )
 
@@ -630,14 +638,14 @@ CONF_ENTRY_ICY_METADATA_HIDDEN_DISABLED = ConfigEntry.from_dict(
     }
 )
 
-CONF_ENTRY_SUPPORT_CROSSFADE_DIFFERENT_SAMPLE_RATES = ConfigEntry(
-    key="crossfade_different_sample_rates",
+CONF_ENTRY_SUPPORT_GAPLESS_DIFFERENT_SAMPLE_RATES = ConfigEntry(
+    key="gapless_different_sample_rates",
     type=ConfigEntryType.BOOLEAN,
-    label="Allow crossfade between tracks with different sample rates",
-    description="Enable this option to allow crossfading between tracks that have different "
+    label="Allow gapless playback (and crossfades) between tracks of different sample rates",
+    description="Enable this option to allow gapless playback between tracks that have different "
     "sample rates (e.g. 44.1kHz to 48kHz). \n\n "
     "Only enable this option if your player actually support this, otherwise you may "
-    "experience audio glitches during crossfades.",
+    "experience audio glitches during transitioning between tracks.",
     default_value=False,
     category="advanced",
 )
@@ -804,7 +812,7 @@ CONF_ENTRY_PROVIDER_SYNC_INTERVAL_ARTISTS = ConfigEntry(
     default_value=720,
     category="sync_options",
     depends_on=CONF_ENTRY_LIBRARY_SYNC_ARTISTS.key,
-    depends_on_value_not="no_import",
+    depends_on_value=True,
     required=True,
 )
 CONF_ENTRY_PROVIDER_SYNC_INTERVAL_ALBUMS = ConfigEntry(
@@ -816,7 +824,7 @@ CONF_ENTRY_PROVIDER_SYNC_INTERVAL_ALBUMS = ConfigEntry(
     default_value=720,
     category="sync_options",
     depends_on=CONF_ENTRY_LIBRARY_SYNC_ALBUMS.key,
-    depends_on_value_not="no_import",
+    depends_on_value=True,
     required=True,
 )
 CONF_ENTRY_PROVIDER_SYNC_INTERVAL_TRACKS = ConfigEntry(
@@ -828,7 +836,7 @@ CONF_ENTRY_PROVIDER_SYNC_INTERVAL_TRACKS = ConfigEntry(
     default_value=720,
     category="sync_options",
     depends_on=CONF_ENTRY_LIBRARY_SYNC_TRACKS.key,
-    depends_on_value_not="no_import",
+    depends_on_value=True,
     required=True,
 )
 CONF_ENTRY_PROVIDER_SYNC_INTERVAL_PLAYLISTS = ConfigEntry(
@@ -840,7 +848,7 @@ CONF_ENTRY_PROVIDER_SYNC_INTERVAL_PLAYLISTS = ConfigEntry(
     default_value=720,
     category="sync_options",
     depends_on=CONF_ENTRY_LIBRARY_SYNC_PLAYLISTS.key,
-    depends_on_value_not="no_import",
+    depends_on_value=True,
     required=True,
 )
 CONF_ENTRY_PROVIDER_SYNC_INTERVAL_PODCASTS = ConfigEntry(
@@ -852,7 +860,7 @@ CONF_ENTRY_PROVIDER_SYNC_INTERVAL_PODCASTS = ConfigEntry(
     default_value=720,
     category="sync_options",
     depends_on=CONF_ENTRY_LIBRARY_SYNC_PODCASTS.key,
-    depends_on_value_not="no_import",
+    depends_on_value=True,
     required=True,
 )
 CONF_ENTRY_PROVIDER_SYNC_INTERVAL_AUDIOBOOKS = ConfigEntry(
@@ -864,7 +872,7 @@ CONF_ENTRY_PROVIDER_SYNC_INTERVAL_AUDIOBOOKS = ConfigEntry(
     default_value=720,
     category="sync_options",
     depends_on=CONF_ENTRY_LIBRARY_SYNC_AUDIOBOOKS.key,
-    depends_on_value_not="no_import",
+    depends_on_value=True,
     required=True,
 )
 CONF_ENTRY_PROVIDER_SYNC_INTERVAL_RADIOS = ConfigEntry(
@@ -876,7 +884,7 @@ CONF_ENTRY_PROVIDER_SYNC_INTERVAL_RADIOS = ConfigEntry(
     default_value=720,
     category="sync_options",
     depends_on=CONF_ENTRY_LIBRARY_SYNC_RADIOS.key,
-    depends_on_value_not="no_import",
+    depends_on_value=True,
     required=True,
 )
 
