@@ -836,7 +836,6 @@ class AudibleHelper:
 
         :param podcast_asin: The ASIN of the parent podcast.
         """
-        # Get podcast to have parent context
         podcast = await self.get_podcast(podcast_asin)
 
         # Fetch episodes - they're typically in relationships or we need to query children
@@ -1234,7 +1233,6 @@ class AudibleHelper:
                         seq_num = 999
                     audiobooks.append((seq_num, self._parse_audiobook(item)))
                     break
-        # Sort by sequence number
         audiobooks.sort(key=lambda x: x[0])
         return [book for _, book in audiobooks]
 
@@ -1252,16 +1250,10 @@ def _html_to_txt(html_text: str) -> str:
 
 
 async def audible_get_auth_info(locale: str) -> tuple[str, str, str]:
-    """
-    Generate the login URL and auth info for Audible OAuth flow asynchronously.
+    """Generate the login URL and auth info for Audible OAuth flow.
 
-    Args:
-        locale: The locale string (e.g., 'us', 'uk', 'de') to determine region settings
-    Returns:
-        A tuple containing:
-        - code_verifier (str): The OAuth code verifier string
-        - oauth_url (str): The complete OAuth URL for login
-        - serial (str): The generated device serial number
+    :param locale: The locale string (e.g., 'us', 'uk', 'de').
+    :return: Tuple of (code_verifier, oauth_url, serial).
     """
     locale_obj = audible.localization.Locale(locale)
     code_verifier = await asyncio.to_thread(audible.login.create_code_verifier)
