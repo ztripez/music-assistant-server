@@ -31,7 +31,12 @@ from music_assistant.providers.audible.audible_helper import (
 )
 
 if TYPE_CHECKING:
-    from music_assistant_models.media_items import Audiobook, MediaItemType
+    from music_assistant_models.media_items import (
+        Audiobook,
+        MediaItemType,
+        Podcast,
+        PodcastEpisode,
+    )
     from music_assistant_models.provider import ProviderManifest
     from music_assistant_models.streamdetails import StreamDetails
 
@@ -53,6 +58,7 @@ CONF_LOCALE = "locale"
 SUPPORTED_FEATURES = {
     ProviderFeature.BROWSE,
     ProviderFeature.LIBRARY_AUDIOBOOKS,
+    ProviderFeature.LIBRARY_PODCASTS,
 }
 
 
@@ -327,10 +333,34 @@ class Audibleprovider(MusicProvider):
         """Get full audiobook details by id."""
         return await self.helper.get_audiobook(asin=prov_audiobook_id, use_cache=False)
 
+    async def get_library_podcasts(self) -> AsyncGenerator[Podcast, None]:
+        """Get all podcasts from the library."""
+        async for podcast in self.helper.get_library_podcasts():
+            yield podcast
+
+    async def get_podcast(self, prov_podcast_id: str) -> Podcast:
+        """Get full podcast details by id."""
+        return await self.helper.get_podcast(asin=prov_podcast_id)
+
+    async def get_podcast_episodes(
+        self, prov_podcast_id: str
+    ) -> AsyncGenerator[PodcastEpisode, None]:
+        """Get all episodes for a podcast."""
+        async for episode in self.helper.get_podcast_episodes(prov_podcast_id):
+            yield episode
+
+    async def get_podcast_episode(self, prov_episode_id: str) -> PodcastEpisode:
+        """Get full podcast episode details by id."""
+        return await self.helper.get_podcast_episode(prov_episode_id)
+
     async def get_stream_details(self, item_id: str, media_type: MediaType) -> StreamDetails:
-        """Get streamdetails for a audiobook based of asin."""
+        """Get stream details for an audiobook or podcast episode.
+
+        :param item_id: The ASIN of the audiobook or podcast episode.
+        :param media_type: The type of media (audiobook or podcast episode).
+        """
         try:
-            return await self.helper.get_stream(asin=item_id)
+            return await self.helper.get_stream(asin=item_id, media_type=media_type)
         except ValueError as exc:
             raise MediaNotFoundError(f"Failed to get stream details for {item_id}") from exc
 
@@ -361,7 +391,7 @@ class Audibleprovider(MusicProvider):
 
         media_item is the full media item details of the played/playing track.
         """
-        await self.helper.set_last_position(prov_item_id, position)
+        await self.helper.set_last_position(prov_item_id, position, media_type)
 
     async def unload(self, is_removed: bool = False) -> None:
         """

@@ -25,8 +25,11 @@ from music_assistant_models.errors import LoginFailed, MediaNotFoundError
 from music_assistant_models.media_items import (
     Audiobook,
     AudioFormat,
+    ItemMapping,
     MediaItemChapter,
     MediaItemImage,
+    Podcast,
+    PodcastEpisode,
     ProviderMapping,
     UniqueList,
 )
@@ -38,6 +41,12 @@ CACHE_DOMAIN = "audible"
 CACHE_CATEGORY_API = 0
 CACHE_CATEGORY_AUDIOBOOK = 1
 CACHE_CATEGORY_CHAPTERS = 2
+CACHE_CATEGORY_PODCAST = 3
+CACHE_CATEGORY_PODCAST_EPISODES = 4
+
+# Content delivery types
+AUDIOBOOK_CONTENT_TYPES = ("SinglePartBook", "MultiPartBook")
+PODCAST_CONTENT_TYPES = ("PodcastParent",)
 
 _AUTH_CACHE: dict[str, audible.Authenticator] = {}
 
@@ -140,7 +149,7 @@ class AudibleHelper:
     ) -> tuple[Audiobook | None, int]:
         """Process a single audiobook item from the library."""
         content_type = audiobook_data.get("content_delivery_type", "")
-        if content_type not in ("SinglePartBook", "MultiPartBook"):
+        if content_type not in AUDIOBOOK_CONTENT_TYPES:
             self.logger.debug(
                 "Skipping non-audiobook item: %s (%s)",
                 audiobook_data.get("title", "Unknown"),
@@ -329,39 +338,55 @@ class AudibleHelper:
         # Fetch resume position
         book.resume_position_ms = await self.get_last_postion(asin=asin)
 
-    async def get_stream(self, asin: str) -> StreamDetails:
-        """Get stream details for a track (audiobook chapter)."""
+    async def get_stream(
+        self, asin: str, media_type: MediaType = MediaType.AUDIOBOOK
+    ) -> StreamDetails:
+        """Get stream details for an audiobook or podcast episode.
+
+        :param asin: The ASIN of the content.
+        :param media_type: The type of media (audiobook or podcast episode).
+        """
         if not asin:
             self.logger.error("Invalid ASIN provided to get_stream")
             raise ValueError("Invalid ASIN provided to get_stream")
 
-        chapters = await self._fetch_chapters(asin=asin)
-        if not chapters:
-            self.logger.warning(f"No chapters found for ASIN {asin}, using default duration")
-            duration = 0
-        else:
-            try:
-                duration = sum(chapter.get("length_ms", 0) for chapter in chapters) / 1000
-            except Exception as exc:
-                self.logger.warning(f"Error calculating duration for ASIN {asin}: {exc}")
-                duration = 0
+        duration = 0
+        # For audiobooks, try to get duration from chapters
+        if media_type == MediaType.AUDIOBOOK:
+            chapters = await self._fetch_chapters(asin=asin)
+            if chapters:
+                try:
+                    duration = sum(chapter.get("length_ms", 0) for chapter in chapters) / 1000
+                except Exception as exc:
+                    self.logger.warning(f"Error calculating duration for ASIN {asin}: {exc}")
 
         try:
-            playback_info = await self.client.post(
-                f"content/{asin}/licenserequest",
-                body={
-                    "quality": "High",
-                    "response_groups": "content_reference,certificate",
-                    "consumption_type": "Streaming",
-                    "supported_media_features": {
-                        "codecs": ["mp4a.40.2", "mp4a.40.42"],
-                        "drm_types": [
-                            "Hls",
-                        ],
+            # Podcasts use Mpeg (non-DRM MP3), audiobooks use HLS
+            if media_type == MediaType.PODCAST_EPISODE:
+                playback_info = await self.client.post(
+                    f"content/{asin}/licenserequest",
+                    body={
+                        "consumption_type": "Streaming",
+                        "drm_type": "Mpeg",
+                        "quality": "High",
                     },
-                    "spatial": False,
-                },
-            )
+                )
+            else:
+                playback_info = await self.client.post(
+                    f"content/{asin}/licenserequest",
+                    body={
+                        "quality": "High",
+                        "response_groups": "content_reference,certificate",
+                        "consumption_type": "Streaming",
+                        "supported_media_features": {
+                            "codecs": ["mp4a.40.2", "mp4a.40.42"],
+                            "drm_types": [
+                                "Hls",
+                            ],
+                        },
+                        "spatial": False,
+                    },
+                )
 
             content_license = playback_info.get("content_license", {})
             if not content_license:
@@ -372,23 +397,28 @@ class AudibleHelper:
             content_reference = content_metadata.get("content_reference", {})
             size = content_reference.get("content_size_in_bytes", 0)
 
-            m3u8_url = content_license.get("license_response")
-            if not m3u8_url:
+            stream_url = content_license.get("license_response")
+            if not stream_url:
                 self.logger.error(f"No license_response (stream URL) for ASIN {asin}")
                 raise ValueError(f"Missing stream URL for ASIN {asin}")
 
             acr = content_license.get("acr", "")
+
+            content_type = (
+                ContentType.MP3 if media_type == MediaType.PODCAST_EPISODE else ContentType.AAC
+            )
         except Exception as exc:
             self.logger.error(f"Error getting stream details for ASIN {asin}: {exc}")
             raise ValueError(f"Failed to get stream details: {exc}") from exc
+
         return StreamDetails(
             provider=self.provider_instance,
             size=size,
             item_id=f"{asin}",
-            audio_format=AudioFormat(content_type=ContentType.AAC),
-            media_type=MediaType.AUDIOBOOK,
+            audio_format=AudioFormat(content_type=content_type),
+            media_type=media_type,
             stream_type=StreamType.HTTP,
-            path=m3u8_url,
+            path=stream_url,
             can_seek=True,
             allow_seek=True,
             duration=duration,
@@ -477,12 +507,14 @@ class AudibleHelper:
             self.logger.error(f"Error getting last position for ASIN {asin}: {exc}")
             return 0
 
-    async def set_last_position(self, asin: str, pos: int) -> None:
+    async def set_last_position(
+        self, asin: str, pos: int, media_type: MediaType = MediaType.AUDIOBOOK
+    ) -> None:
         """Report last position to Audible.
 
-        Args:
-            asin: The audiobook ID
-            pos: Position in seconds
+        :param asin: The content ID (audiobook or podcast episode).
+        :param pos: Position in seconds.
+        :param media_type: The type of media (audiobook or podcast episode).
         """
         if not asin or asin == "error" or pos <= 0:
             return
@@ -490,7 +522,7 @@ class AudibleHelper:
         try:
             position_ms = pos * 1000
 
-            stream_details = await self.get_stream(asin=asin)
+            stream_details = await self.get_stream(asin=asin, media_type=media_type)
             acr = stream_details.data.get("acr")
 
             if not acr:
@@ -658,6 +690,350 @@ class AudibleHelper:
         # This avoids N+1 API calls during library sync
 
         return book
+
+    async def _process_podcast_item(
+        self, podcast_data: dict[str, Any], total_processed: int
+    ) -> tuple[Podcast | None, int]:
+        """Process a single podcast item from the library."""
+        content_type = podcast_data.get("content_delivery_type", "")
+        if content_type not in PODCAST_CONTENT_TYPES:
+            self.logger.debug(
+                "Skipping non-podcast item: %s (%s)",
+                podcast_data.get("title", "Unknown"),
+                content_type,
+            )
+            return None, total_processed + 1
+
+        asin = str(podcast_data.get("asin", ""))
+        cached_podcast = None
+        if asin:
+            cached_podcast = await self.mass.cache.get(
+                key=asin,
+                provider=self.provider_instance,
+                category=CACHE_CATEGORY_PODCAST,
+                default=None,
+            )
+
+        try:
+            if cached_podcast is not None:
+                podcast = self._parse_podcast(cached_podcast)
+            else:
+                podcast = self._parse_podcast(podcast_data)
+            return podcast, total_processed + 1
+        except MediaNotFoundError as exc:
+            self.logger.warning(f"Skipping invalid podcast: {exc}")
+            return None, total_processed + 1
+        except Exception as exc:
+            self.logger.warning(
+                f"Error processing podcast {podcast_data.get('asin', 'unknown')}: {exc}"
+            )
+            return None, total_processed + 1
+
+    async def get_library_podcasts(self) -> AsyncGenerator[Podcast, None]:
+        """Fetch podcasts from the user's library with pagination."""
+        response_groups = [
+            "contributors",
+            "media",
+            "product_attrs",
+            "product_desc",
+            "product_details",
+            "product_extended_attrs",
+        ]
+
+        page = 1
+        page_size = 50
+        total_processed = 0
+        max_iterations = 100
+        iteration = 0
+
+        while iteration < max_iterations:
+            iteration += 1
+            self.logger.debug(
+                "Audible: Fetching library page %s for podcasts (processed so far: %s)",
+                page,
+                total_processed,
+            )
+
+            library = await self._call_api(
+                "library",
+                use_cache=False,
+                response_groups=",".join(response_groups),
+                page=page,
+                num_results=page_size,
+            )
+
+            items = library.get("items", [])
+            if not items:
+                self.logger.debug(
+                    "Audible: No more items returned for podcasts (processed %s items)",
+                    total_processed,
+                )
+                break
+
+            podcasts_found_this_page = 0
+            for podcast_data in items:
+                podcast, total_processed = await self._process_podcast_item(
+                    podcast_data, total_processed
+                )
+                if podcast:
+                    yield podcast
+                    podcasts_found_this_page += 1
+
+            self.logger.debug(
+                "Audible: Found %s podcasts on page %s", podcasts_found_this_page, page
+            )
+
+            page += 1
+            if len(items) < page_size:
+                break
+
+        self.logger.info(
+            "Audible: Successfully retrieved podcasts from library (scanned %s items)",
+            total_processed,
+        )
+
+    async def get_podcast(self, asin: str, use_cache: bool = True) -> Podcast:
+        """Fetch full podcast details by ASIN.
+
+        :param asin: The ASIN of the podcast.
+        :param use_cache: Whether to use cached data if available.
+        """
+        if use_cache:
+            cached_podcast = await self.mass.cache.get(
+                key=asin,
+                provider=self.provider_instance,
+                category=CACHE_CATEGORY_PODCAST,
+                default=None,
+            )
+            if cached_podcast is not None:
+                return self._parse_podcast(cached_podcast)
+
+        response = await self._call_api(
+            f"library/{asin}",
+            response_groups="""
+                contributors, media, price, product_attrs, product_desc, product_details,
+                product_extended_attrs, relationships
+                """,
+        )
+
+        if response is None:
+            raise MediaNotFoundError(f"Podcast with ASIN {asin} not found")
+
+        item_data = response.get("item")
+        if item_data is None:
+            raise MediaNotFoundError(f"Podcast data for ASIN {asin} is empty")
+
+        await self.mass.cache.set(
+            key=asin,
+            provider=self.provider_instance,
+            category=CACHE_CATEGORY_PODCAST,
+            data=item_data,
+        )
+        return self._parse_podcast(item_data)
+
+    async def get_podcast_episodes(self, podcast_asin: str) -> AsyncGenerator[PodcastEpisode, None]:
+        """Fetch all episodes for a podcast.
+
+        :param podcast_asin: The ASIN of the parent podcast.
+        """
+        # Get podcast to have parent context
+        podcast = await self.get_podcast(podcast_asin)
+
+        # Fetch episodes - they're typically in relationships or we need to query children
+        response_groups = [
+            "contributors",
+            "media",
+            "product_attrs",
+            "product_desc",
+            "product_details",
+            "relationships",
+        ]
+
+        page = 1
+        page_size = 50
+        position = 0
+
+        while True:
+            # Query for children of the podcast parent
+            response = await self._call_api(
+                "library",
+                use_cache=False,
+                response_groups=",".join(response_groups),
+                parent_asin=podcast_asin,
+                page=page,
+                num_results=page_size,
+            )
+
+            items = response.get("items", [])
+            if not items:
+                break
+
+            for episode_data in items:
+                try:
+                    episode = self._parse_podcast_episode(episode_data, podcast, position)
+                    position += 1
+                    yield episode
+                except Exception as exc:
+                    asin = episode_data.get("asin", "unknown")
+                    self.logger.warning(f"Error parsing podcast episode {asin}: {exc}")
+
+            page += 1
+            if len(items) < page_size:
+                break
+
+    async def get_podcast_episode(self, episode_asin: str) -> PodcastEpisode:
+        """Fetch full podcast episode details by ASIN.
+
+        :param episode_asin: The ASIN of the podcast episode.
+        """
+        response = await self._call_api(
+            f"library/{episode_asin}",
+            response_groups="""
+                contributors, media, price, product_attrs, product_desc, product_details,
+                product_extended_attrs, relationships
+                """,
+        )
+
+        if response is None:
+            raise MediaNotFoundError(f"Podcast episode with ASIN {episode_asin} not found")
+
+        item_data = response.get("item")
+        if item_data is None:
+            raise MediaNotFoundError(f"Podcast episode data for ASIN {episode_asin} is empty")
+
+        # Try to get parent podcast info from relationships
+        podcast: Podcast | None = None
+        relationships = item_data.get("relationships", [])
+        for rel in relationships:
+            if rel.get("relationship_type") == "parent":
+                parent_asin = rel.get("asin")
+                if parent_asin:
+                    with suppress(MediaNotFoundError):
+                        podcast = await self.get_podcast(parent_asin)
+                break
+
+        return self._parse_podcast_episode(item_data, podcast, 0)
+
+    def _parse_podcast(self, podcast_data: dict[str, Any] | None) -> Podcast:
+        """Parse podcast data from API response.
+
+        :param podcast_data: Raw podcast data from the Audible API.
+        """
+        if podcast_data is None:
+            self.logger.error("Received None podcast_data in _parse_podcast")
+            raise MediaNotFoundError("Podcast data not found")
+
+        asin = podcast_data.get("asin", "")
+        title = podcast_data.get("title", "")
+        publisher = podcast_data.get("publisher_name", "")
+
+        # Create podcast object
+        podcast = Podcast(
+            item_id=asin,
+            provider=self.provider_instance,
+            name=title,
+            publisher=publisher,
+            provider_mappings={
+                ProviderMapping(
+                    item_id=asin,
+                    provider_domain=self.provider_domain,
+                    provider_instance=self.provider_instance,
+                )
+            },
+        )
+
+        # Set metadata
+        podcast.metadata.description = _html_to_txt(
+            str(
+                podcast_data.get("publisher_summary", "")
+                or podcast_data.get("extended_product_description", "")
+            )
+        )
+        podcast.metadata.languages = UniqueList([podcast_data.get("language") or ""])
+
+        # Set genres
+        podcast.metadata.genres = {
+            genre.replace("_", " ") for genre in (podcast_data.get("platinum_keywords") or [])
+        }
+
+        # Add images
+        image_path = podcast_data.get("product_images", {}).get("500")
+        podcast.metadata.images = UniqueList(self._create_images(image_path))
+
+        return podcast
+
+    def _parse_podcast_episode(
+        self,
+        episode_data: dict[str, Any] | None,
+        podcast: Podcast | None,
+        position: int,
+    ) -> PodcastEpisode:
+        """Parse podcast episode data from API response.
+
+        :param episode_data: Raw episode data from the Audible API.
+        :param podcast: Parent podcast object (optional).
+        :param position: Position/index of the episode in the podcast.
+        """
+        if episode_data is None:
+            self.logger.error("Received None episode_data in _parse_podcast_episode")
+            raise MediaNotFoundError("Podcast episode data not found")
+
+        asin = episode_data.get("asin", "")
+        title = episode_data.get("title", "")
+
+        # Get duration from runtime_length_min
+        runtime_minutes = episode_data.get("runtime_length_min", 0)
+        duration = runtime_minutes * 60 if runtime_minutes else 0
+
+        # Create podcast reference - use Podcast object or create ItemMapping
+        podcast_ref: Podcast | ItemMapping
+        if podcast is not None:
+            podcast_ref = podcast
+        else:
+            # Try to get parent_asin from relationships for ItemMapping
+            parent_asin = ""
+            relationships = episode_data.get("relationships", [])
+            for rel in relationships:
+                if rel.get("relationship_type") == "parent":
+                    parent_asin = rel.get("asin", "")
+                    break
+            podcast_ref = ItemMapping(
+                item_id=parent_asin or asin,
+                provider=self.provider_instance,
+                name="Unknown Podcast",
+                media_type=MediaType.PODCAST,
+            )
+
+        # Create episode object
+        episode = PodcastEpisode(
+            item_id=asin,
+            provider=self.provider_instance,
+            name=title,
+            duration=duration,
+            position=position,
+            podcast=podcast_ref,
+            provider_mappings={
+                ProviderMapping(
+                    item_id=asin,
+                    provider_domain=self.provider_domain,
+                    provider_instance=self.provider_instance,
+                )
+            },
+        )
+
+        # Set metadata
+        episode.metadata.description = _html_to_txt(
+            str(
+                episode_data.get("publisher_summary", "")
+                or episode_data.get("extended_product_description", "")
+            )
+        )
+
+        # Add images
+        image_path = episode_data.get("product_images", {}).get("500")
+        episode.metadata.images = UniqueList(self._create_images(image_path))
+
+        return episode
 
     async def deregister(self) -> None:
         """Deregister this provider from Audible."""
