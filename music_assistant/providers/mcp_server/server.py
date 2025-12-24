@@ -1139,7 +1139,7 @@ def _register_player_tools(mcp: FastMCP) -> None:
 
     @mcp.tool()
     async def get_player_by_name(name: str) -> str:
-        """Find a player by name.
+        """Find a player by name, including its capabilities.
 
         :param name: Full or partial player name.
         """
@@ -1151,12 +1151,14 @@ def _register_player_tools(mcp: FastMCP) -> None:
             matches = []
             for player in mass.players.all():
                 if name_lower in player.display_name.lower():
+                    capabilities = [f.name.lower() for f in player.supported_features]
                     matches.append(
                         {
                             "id": player.player_id,
                             "name": player.display_name,
                             "available": player.available,
                             "state": player.playback_state.value,
+                            "capabilities": capabilities,
                         }
                     )
 
@@ -1177,13 +1179,15 @@ def _register_player_resources(mcp: FastMCP) -> None:
 
     @mcp.resource("players://")
     async def list_players() -> str:
-        """List all available players/speakers."""
+        """List all available players/speakers with their capabilities."""
         mass = _get_mass()
         if mass is None:
             return json.dumps({"error": "Music Assistant not initialized"})
 
         players = []
         for player in mass.players.all():
+            # Convert supported features to list of capability names
+            capabilities = [f.name.lower() for f in player.supported_features]
             players.append(
                 {
                     "id": player.player_id,
@@ -1194,6 +1198,7 @@ def _register_player_resources(mcp: FastMCP) -> None:
                     "muted": player.volume_muted,
                     "type": player.type.value if player.type else "unknown",
                     "powered": player.powered,
+                    "capabilities": capabilities,
                 }
             )
 
@@ -1234,6 +1239,9 @@ def _register_player_resources(mcp: FastMCP) -> None:
                 "elapsed_time": queue.elapsed_time,
             }
 
+        # Convert supported features to list of capability names
+        capabilities = [f.name.lower() for f in player.supported_features]
+
         return json.dumps(
             {
                 "player": {
@@ -1246,6 +1254,7 @@ def _register_player_resources(mcp: FastMCP) -> None:
                     "type": player.type.value if player.type else "unknown",
                     "powered": player.powered,
                     "group_members": player.group_members,
+                    "capabilities": capabilities,
                 },
                 "queue": queue_info,
             },

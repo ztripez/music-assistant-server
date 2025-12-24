@@ -14,6 +14,8 @@ if TYPE_CHECKING:
 @pytest.fixture
 def mock_player() -> Mock:
     """Create a mock player."""
+    from music_assistant_models.enums import PlayerFeature  # noqa: PLC0415
+
     player = Mock()
     player.player_id = "player_1"
     player.display_name = "Living Room"
@@ -24,12 +26,21 @@ def mock_player() -> Mock:
     player.playback_state = Mock(value="playing")
     player.type = Mock(value="speaker")
     player.group_members = []
+    player.supported_features = {
+        PlayerFeature.POWER,
+        PlayerFeature.VOLUME_SET,
+        PlayerFeature.PAUSE,
+        PlayerFeature.SEEK,
+        PlayerFeature.SET_MEMBERS,
+    }
     return player
 
 
 @pytest.fixture
 def mock_player_2() -> Mock:
     """Create a second mock player."""
+    from music_assistant_models.enums import PlayerFeature  # noqa: PLC0415
+
     player = Mock()
     player.player_id = "player_2"
     player.display_name = "Kitchen"
@@ -40,6 +51,11 @@ def mock_player_2() -> Mock:
     player.playback_state = Mock(value="idle")
     player.type = Mock(value="speaker")
     player.group_members = []
+    player.supported_features = {
+        PlayerFeature.POWER,
+        PlayerFeature.VOLUME_SET,
+        PlayerFeature.PAUSE,
+    }
     return player
 
 
