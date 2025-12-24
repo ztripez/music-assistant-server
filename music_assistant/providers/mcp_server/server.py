@@ -1394,7 +1394,7 @@ def _register_library_resources(mcp: FastMCP) -> None:
 # =============================================================================
 
 
-def _register_prompts(mcp: FastMCP) -> None:
+def _register_prompts(mcp: FastMCP) -> None:  # noqa: PLR0915
     """Register MCP prompts as user-invokable templates."""
 
     @mcp.prompt()
@@ -1479,6 +1479,23 @@ def _register_prompts(mcp: FastMCP) -> None:
         if rooms:
             return f"Help me sync music across these rooms: {rooms}.{players_info}"
         return f"Help me set up multi-room audio to play music in sync.{players_info}"
+
+    @mcp.prompt()
+    async def transfer_playback(from_player: str = "", to_player: str = "") -> str:
+        """Transfer playback from one player to another."""
+        mass = _get_mass()
+        players_info = ""
+        if mass:
+            players = [p.display_name for p in mass.players.all() if p.available]
+            players_info = f"\n\nAvailable players: {', '.join(players)}" if players else ""
+
+        if from_player and to_player:
+            return f"Transfer what's playing from {from_player} to {to_player}.{players_info}"
+        if to_player:
+            return f"I want to continue listening on {to_player}.{players_info}"
+        if from_player:
+            return f"Move what's playing on {from_player} to another player.{players_info}"
+        return f"Help me transfer music from one player to another.{players_info}"
 
 
 # =============================================================================
