@@ -67,12 +67,7 @@ test = [
   "ruff==0.14.9",
 ]
 music-insights = [
-    "accelerate>=1.7.0",
-    "bitsandbytes>=0.46.0",
-    "chromadb>=1.0.12",
-    "torch>=2.7.1",
-    "torchaudio>=2.7.1",
-    "transformers>=4.52.4",
+    "msgpack>=1.0.0",
 ]
 
 [project.scripts]

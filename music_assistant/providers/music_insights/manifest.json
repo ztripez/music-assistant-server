@@ -2,8 +2,8 @@
   "type": "music",
   "domain": "music_insights",
   "name": "Music Insights",
-  "description": "Provides music recommendations, similar track suggestions, and semantic search capabilities based on audio embeddings and user interactions.",
+  "description": "Provides music recommendations, similar track suggestions, and semantic search capabilities powered by the Insight Sidecar service.",
   "codeowners": ["@ztripez"],
-  "requirements": ["chromadb","transformers","torch","torchaudio","accelerate","bitsandbytes"],
-  "documentation": "Link to the documentation on the music-assistant.io helppage (may be added later)."
+  "requirements": ["msgpack"],
+  "documentation": "https://github.com/ztripez/music-assistant-insights"
 }
