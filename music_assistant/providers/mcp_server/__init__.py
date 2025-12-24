@@ -27,8 +27,6 @@ if TYPE_CHECKING:
 # Configuration keys
 CONF_PORT = "port"
 CONF_REQUIRE_AUTH = "require_auth"
-CONF_INTRO_PROMPT = "intro_prompt"
-CONF_PLAYER_CONTEXT_PROMPT = "player_context_prompt"
 
 # Feature enable/disable keys
 CONF_ENABLE_PLAYBACK_TOOLS = "enable_playback_tools"
@@ -43,32 +41,6 @@ CONF_ENABLE_PROMPTS = "enable_prompts"
 
 # Default values
 DEFAULT_MCP_PORT = 8096
-
-# Default prompt templates
-# {player_list} is replaced with the list of available players
-DEFAULT_INTRO_PROMPT = """You are connected to Music Assistant, \
-a music library manager and multi-room audio system.
-
-Available capabilities:
-- Control playback: play, pause, stop, next/previous track
-- Adjust volume on any player
-- Search and play music from the library
-- Control multiple speakers/rooms
-
-Available players: {player_list}
-
-To control music, use the available tools. \
-Always check which players are available before issuing commands.
-When the user asks to play music, search for it first, \
-then use play_media with the URI from the search results."""
-
-# {player_name}, {state}, {volume}, {current_track} are replaced with actual values
-DEFAULT_PLAYER_CONTEXT_PROMPT = """You are controlling: {player_name}
-Current state: {state}
-Volume: {volume}%
-Now playing: {current_track}
-
-Available actions: play, pause, stop, next_track, previous_track, set_volume"""
 
 SUPPORTED_FEATURES: set[object] = set()
 
@@ -107,30 +79,6 @@ async def get_config_entries(
                 "When enabled, clients must provide a valid MA token."
             ),
             default_value=True,
-        ),
-        ConfigEntry(
-            key=CONF_INTRO_PROMPT,
-            type=ConfigEntryType.STRING,
-            label="Introduction Prompt",
-            description=(
-                "Prompt to introduce AI assistants to Music Assistant capabilities. "
-                "Use {player_list} as a placeholder for available players."
-            ),
-            default_value=DEFAULT_INTRO_PROMPT,
-            category="advanced",
-            multi_value=True,
-        ),
-        ConfigEntry(
-            key=CONF_PLAYER_CONTEXT_PROMPT,
-            type=ConfigEntryType.STRING,
-            label="Player Context Prompt",
-            description=(
-                "Prompt for player-specific context. Placeholders: "
-                "{player_name}, {state}, {volume}, {current_track}"
-            ),
-            default_value=DEFAULT_PLAYER_CONTEXT_PROMPT,
-            category="advanced",
-            multi_value=True,
         ),
         # Feature toggles
         ConfigEntry(
@@ -235,22 +183,6 @@ class MCPServerProvider(PluginProvider):
         return bool(self.config.get_value(CONF_REQUIRE_AUTH))
 
     @property
-    def intro_prompt(self) -> str:
-        """Return the introduction prompt template."""
-        value = self.config.get_value(CONF_INTRO_PROMPT)
-        if isinstance(value, str):
-            return value
-        return DEFAULT_INTRO_PROMPT
-
-    @property
-    def player_context_prompt(self) -> str:
-        """Return the player context prompt template."""
-        value = self.config.get_value(CONF_PLAYER_CONTEXT_PROMPT)
-        if isinstance(value, str):
-            return value
-        return DEFAULT_PLAYER_CONTEXT_PROMPT
-
-    @property
     def enabled_features(self) -> dict[str, bool]:
         """Return a dictionary of enabled feature flags."""
         return {
@@ -274,8 +206,6 @@ class MCPServerProvider(PluginProvider):
             mass=self.mass,
             port=self.port,
             require_auth=self.require_auth,
-            intro_prompt=self.intro_prompt,
-            player_context_prompt=self.player_context_prompt,
             enabled_features=self.enabled_features,
             logger=self.logger,
         )

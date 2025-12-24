@@ -17,8 +17,6 @@ if TYPE_CHECKING:
 _state: dict[str, Any] = {
     "mass": None,
     "logger": None,
-    "intro_prompt": "",
-    "player_context_prompt": "",
     "enabled_features": {},
 }
 
@@ -104,7 +102,7 @@ def _register_playback_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
     async def play(player_id: str) -> str:
         """Start or resume playback on a player.
 
-        :param player_id: The ID of the player/queue to control.
+        :param player_id: Player ID from players:// resource.
         """
         mass = _get_mass()
         if mass is None:
@@ -232,10 +230,14 @@ def _register_playback_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
     ) -> str:
         """Play a media item by URI on a player.
 
-        :param player_id: The ID of the player/queue to play on.
-        :param uri: The URI of the media item (from search or library).
-        :param enqueue_mode: How to add to queue: play, next, add, replace.
-        :param radio_mode: If true, create an endless radio based on the item.
+        Use search_music first to find content and get URIs.
+        Get player_id from the players:// resource.
+
+        :param player_id: The ID of the player (from players:// resource).
+        :param uri: Media URI from search_music results (e.g., spotify://track/abc).
+        :param enqueue_mode: How to add: play (now), next (after current),
+            add (to end), replace (clear queue).
+        :param radio_mode: If true, create endless radio based on this item.
         """
         mass = _get_mass()
         if mass is None:
@@ -268,12 +270,14 @@ def _register_playback_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
         limit: int = 10,
         library_only: bool = False,
     ) -> str:
-        """Search the music library and streaming providers.
+        """Search for music across library and streaming providers.
 
-        :param query: Search query string.
-        :param media_types: Comma-separated types (track,artist,album,playlist,radio).
-        :param limit: Maximum results per media type (default 10).
-        :param library_only: If true, only search the local library.
+        Returns results with URIs. Use these URIs with play_media to play content.
+
+        :param query: Search query (artist name, song title, album, etc.).
+        :param media_types: Comma-separated: track, artist, album, playlist, radio.
+        :param limit: Max results per type (default 10).
+        :param library_only: Only search local library, not streaming providers.
         """
         mass = _get_mass()
         if mass is None:
@@ -1386,64 +1390,95 @@ def _register_library_resources(mcp: FastMCP) -> None:
 
 
 # =============================================================================
-# PROMPTS
+# PROMPTS (User-invokable templates per MCP spec)
 # =============================================================================
 
 
 def _register_prompts(mcp: FastMCP) -> None:
-    """Register all MCP prompts."""
+    """Register MCP prompts as user-invokable templates."""
 
     @mcp.prompt()
-    async def music_assistant_intro() -> str:
-        """Introduction prompt to prime an AI assistant with MA capabilities."""
+    async def play_music(query: str = "", player: str = "") -> str:
+        """Help me play music on Music Assistant."""
         mass = _get_mass()
-        if mass is None:
-            return "Music Assistant is not currently available."
+        players_info = ""
+        if mass:
+            players = [p.display_name for p in mass.players.all() if p.available]
+            players_info = f"\n\nAvailable players: {', '.join(players)}" if players else ""
 
-        players = mass.players.all()
-        player_list = (
-            ", ".join(p.display_name for p in players if p.available) or "No players available"
-        )
+        query_part = f'"{query}"' if query else "some music"
+        player_part = f" on {player}" if player else ""
 
-        # Use configured prompt template
-        intro_template = str(_state.get("intro_prompt", ""))
-        if intro_template:
-            return intro_template.format(player_list=player_list)
-
-        # Fallback to default if no template configured
-        return f"Music Assistant is available. Players: {player_list}"
+        return f"I want to play {query_part}{player_part}.{players_info}"
 
     @mcp.prompt()
-    async def playback_control_context(player_id: str) -> str:
-        """Context prompt for controlling a specific player."""
+    async def whats_playing(player: str = "") -> str:
+        """Ask what's currently playing."""
         mass = _get_mass()
-        if mass is None:
-            return "Music Assistant is not currently available."
+        if not mass:
+            return "What's currently playing?"
 
-        player = mass.players.get(player_id)
-        if not player:
-            return f"Player {player_id} not found."
+        if player:
+            # Try to find the player and get current track
+            for p in mass.players.all():
+                if player.lower() in p.display_name.lower() or player == p.player_id:
+                    queue = mass.player_queues.get(p.player_id)
+                    if queue and queue.current_item:
+                        return (
+                            f"What's playing on {p.display_name}? "
+                            f"(Currently: {queue.current_item.name})"
+                        )
+                    return f"What's playing on {p.display_name}?"
 
-        queue = mass.player_queues.get(player_id)
-        current_track = "Nothing playing"
-        if queue and queue.current_item:
-            current_track = queue.current_item.name
+        # List all players with their current state
+        playing_info = []
+        for p in mass.players.all():
+            if p.available:
+                queue = mass.player_queues.get(p.player_id)
+                track = queue.current_item.name if queue and queue.current_item else "Nothing"
+                playing_info.append(f"{p.display_name}: {track}")
 
-        state = player.playback_state.value
-        volume = player.volume_level or 0
+        return "What's currently playing?\n\n" + "\n".join(playing_info)
 
-        # Use configured prompt template
-        context_template = str(_state.get("player_context_prompt", ""))
-        if context_template:
-            return context_template.format(
-                player_name=player.display_name,
-                state=state,
-                volume=volume,
-                current_track=current_track,
-            )
+    @mcp.prompt()
+    async def control_playback(player: str = "", action: str = "") -> str:
+        """Control playback on a player."""
+        actions = "play, pause, stop, next, previous, volume up, volume down"
+        player_part = f" on {player}" if player else ""
+        action_part = action if action else f"[{actions}]"
+        return f"I want to {action_part}{player_part}."
 
-        # Fallback to default if no template configured
-        return f"Controlling {player.display_name}, state: {state}, volume: {volume}%"
+    @mcp.prompt()
+    async def discover_music(mood: str = "", genre: str = "") -> str:
+        """Discover new music based on mood or genre."""
+        parts = []
+        if mood:
+            parts.append(mood)
+        if genre:
+            parts.append(genre)
+
+        if parts:
+            return f"Suggest some {' '.join(parts)} music for me to listen to."
+        return "Suggest some music based on my listening history and preferences."
+
+    @mcp.prompt()
+    async def manage_queue(player: str = "") -> str:
+        """Manage the playback queue."""
+        player_part = f" on {player}" if player else ""
+        return f"Help me manage the music queue{player_part}. Show me what's queued up."
+
+    @mcp.prompt()
+    async def setup_multiroom(rooms: str = "") -> str:
+        """Set up multi-room audio."""
+        mass = _get_mass()
+        players_info = ""
+        if mass:
+            players = [p.display_name for p in mass.players.all() if p.available]
+            players_info = f"\n\nAvailable speakers: {', '.join(players)}" if players else ""
+
+        if rooms:
+            return f"Help me sync music across these rooms: {rooms}.{players_info}"
+        return f"Help me set up multi-room audio to play music in sync.{players_info}"
 
 
 # =============================================================================
@@ -1455,8 +1490,6 @@ async def start_mcp_server(
     mass: MusicAssistant,
     port: int,
     require_auth: bool,
-    intro_prompt: str,
-    player_context_prompt: str,
     enabled_features: dict[str, bool],
     logger: logging.Logger,
 ) -> tuple[asyncio.Task[Any], asyncio.Event]:
@@ -1465,15 +1498,11 @@ async def start_mcp_server(
     :param mass: MusicAssistant instance.
     :param port: Port to run the server on.
     :param require_auth: Whether to require authentication.
-    :param intro_prompt: Template for the introduction prompt.
-    :param player_context_prompt: Template for the player context prompt.
     :param enabled_features: Dictionary of feature flags to enable/disable tool categories.
     :param logger: Logger instance.
     :return: Tuple of (server task, shutdown event).
     """
     _state["logger"] = logger
-    _state["intro_prompt"] = intro_prompt
-    _state["player_context_prompt"] = player_context_prompt
     _state["enabled_features"] = enabled_features
 
     # Create the MCP server with authentication and feature flags
