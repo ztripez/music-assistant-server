@@ -1622,7 +1622,11 @@ async def start_mcp_server(
         except asyncio.CancelledError:
             # Handle task cancellation during shutdown
             server.force_exit = True
-            raise
+            server_task.cancel()
+        except RuntimeError:
+            # Event loop closing, force immediate exit
+            server.force_exit = True
+            server_task.cancel()
 
     task = asyncio.create_task(run_server())
     return task, shutdown_event

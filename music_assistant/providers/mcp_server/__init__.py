@@ -219,11 +219,15 @@ class MCPServerProvider(PluginProvider):
         """Handle unload/close of the provider."""
         if self._shutdown_event is not None:
             self._shutdown_event.set()
-            if self._server_task is not None:
-                # Give the server time to shutdown gracefully
-                with contextlib.suppress(TimeoutError, asyncio.CancelledError):
-                    await asyncio.wait_for(
-                        asyncio.shield(self._server_task),
-                        timeout=5.0,
-                    )
-            self.logger.info("MCP server stopped")
+        if self._server_task is not None:
+            # Wait briefly for graceful shutdown, then cancel
+            try:
+                await asyncio.wait_for(self._server_task, timeout=3.0)
+            except (TimeoutError, asyncio.CancelledError):
+                self._server_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._server_task
+            except RuntimeError:
+                # Event loop may be closing, just cancel
+                self._server_task.cancel()
+        self.logger.info("MCP server stopped")
