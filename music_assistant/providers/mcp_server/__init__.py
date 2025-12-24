@@ -30,6 +30,17 @@ CONF_REQUIRE_AUTH = "require_auth"
 CONF_INTRO_PROMPT = "intro_prompt"
 CONF_PLAYER_CONTEXT_PROMPT = "player_context_prompt"
 
+# Feature enable/disable keys
+CONF_ENABLE_PLAYBACK_TOOLS = "enable_playback_tools"
+CONF_ENABLE_QUEUE_TOOLS = "enable_queue_tools"
+CONF_ENABLE_VOLUME_TOOLS = "enable_volume_tools"
+CONF_ENABLE_LIBRARY_TOOLS = "enable_library_tools"
+CONF_ENABLE_PLAYLIST_TOOLS = "enable_playlist_tools"
+CONF_ENABLE_PLAYER_TOOLS = "enable_player_tools"
+CONF_ENABLE_PLAYER_RESOURCES = "enable_player_resources"
+CONF_ENABLE_LIBRARY_RESOURCES = "enable_library_resources"
+CONF_ENABLE_PROMPTS = "enable_prompts"
+
 # Default values
 DEFAULT_MCP_PORT = 8096
 
@@ -121,6 +132,86 @@ async def get_config_entries(
             category="advanced",
             multi_value=True,
         ),
+        # Feature toggles
+        ConfigEntry(
+            key=CONF_ENABLE_PLAYBACK_TOOLS,
+            type=ConfigEntryType.BOOLEAN,
+            label="Enable Playback Tools",
+            description="Expose play, pause, stop, seek, skip, and media playback tools.",
+            default_value=True,
+            category="features",
+        ),
+        ConfigEntry(
+            key=CONF_ENABLE_QUEUE_TOOLS,
+            type=ConfigEntryType.BOOLEAN,
+            label="Enable Queue Tools",
+            description="Expose queue management tools (get, clear, shuffle, repeat, move items).",
+            default_value=True,
+            category="features",
+        ),
+        ConfigEntry(
+            key=CONF_ENABLE_VOLUME_TOOLS,
+            type=ConfigEntryType.BOOLEAN,
+            label="Enable Volume Tools",
+            description="Expose volume control tools (set, up, down, mute, group volume).",
+            default_value=True,
+            category="features",
+        ),
+        ConfigEntry(
+            key=CONF_ENABLE_LIBRARY_TOOLS,
+            type=ConfigEntryType.BOOLEAN,
+            label="Enable Library Tools",
+            description=(
+                "Expose library tools (recommendations, recently played, browse, "
+                "artist/album tracks, favorites)."
+            ),
+            default_value=True,
+            category="features",
+        ),
+        ConfigEntry(
+            key=CONF_ENABLE_PLAYLIST_TOOLS,
+            type=ConfigEntryType.BOOLEAN,
+            label="Enable Playlist Tools",
+            description="Expose playlist tools (get, create, add/remove tracks).",
+            default_value=True,
+            category="features",
+        ),
+        ConfigEntry(
+            key=CONF_ENABLE_PLAYER_TOOLS,
+            type=ConfigEntryType.BOOLEAN,
+            label="Enable Player Tools",
+            description="Expose player tools (power, grouping, announcements, find by name).",
+            default_value=True,
+            category="features",
+        ),
+        ConfigEntry(
+            key=CONF_ENABLE_PLAYER_RESOURCES,
+            type=ConfigEntryType.BOOLEAN,
+            label="Enable Player Resources",
+            description=(
+                "Expose player resources (players list, player details, now playing, queue)."
+            ),
+            default_value=True,
+            category="features",
+        ),
+        ConfigEntry(
+            key=CONF_ENABLE_LIBRARY_RESOURCES,
+            type=ConfigEntryType.BOOLEAN,
+            label="Enable Library Resources",
+            description=(
+                "Expose library resources (stats, favorites, recently played, providers)."
+            ),
+            default_value=True,
+            category="features",
+        ),
+        ConfigEntry(
+            key=CONF_ENABLE_PROMPTS,
+            type=ConfigEntryType.BOOLEAN,
+            label="Enable Prompts",
+            description="Expose MCP prompts for AI assistant context.",
+            default_value=True,
+            category="features",
+        ),
     )
 
 
@@ -159,6 +250,21 @@ class MCPServerProvider(PluginProvider):
             return value
         return DEFAULT_PLAYER_CONTEXT_PROMPT
 
+    @property
+    def enabled_features(self) -> dict[str, bool]:
+        """Return a dictionary of enabled feature flags."""
+        return {
+            "playback_tools": bool(self.config.get_value(CONF_ENABLE_PLAYBACK_TOOLS)),
+            "queue_tools": bool(self.config.get_value(CONF_ENABLE_QUEUE_TOOLS)),
+            "volume_tools": bool(self.config.get_value(CONF_ENABLE_VOLUME_TOOLS)),
+            "library_tools": bool(self.config.get_value(CONF_ENABLE_LIBRARY_TOOLS)),
+            "playlist_tools": bool(self.config.get_value(CONF_ENABLE_PLAYLIST_TOOLS)),
+            "player_tools": bool(self.config.get_value(CONF_ENABLE_PLAYER_TOOLS)),
+            "player_resources": bool(self.config.get_value(CONF_ENABLE_PLAYER_RESOURCES)),
+            "library_resources": bool(self.config.get_value(CONF_ENABLE_LIBRARY_RESOURCES)),
+            "prompts": bool(self.config.get_value(CONF_ENABLE_PROMPTS)),
+        }
+
     async def loaded_in_mass(self) -> None:
         """Call after the provider has been loaded."""
         from .server import start_mcp_server  # noqa: PLC0415
@@ -170,6 +276,7 @@ class MCPServerProvider(PluginProvider):
             require_auth=self.require_auth,
             intro_prompt=self.intro_prompt,
             player_context_prompt=self.player_context_prompt,
+            enabled_features=self.enabled_features,
             logger=self.logger,
         )
         self.logger.info(

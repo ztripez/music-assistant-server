@@ -19,20 +19,25 @@ _state: dict[str, Any] = {
     "logger": None,
     "intro_prompt": "",
     "player_context_prompt": "",
+    "enabled_features": {},
 }
 
 
 def create_mcp_server(
     mass: MusicAssistant,
     require_auth: bool = True,
+    enabled_features: dict[str, bool] | None = None,
 ) -> FastMCP:
     """Create and configure the MCP server instance.
 
     :param mass: MusicAssistant instance.
     :param require_auth: Whether to require authentication.
+    :param enabled_features: Dictionary of feature flags to enable/disable tool categories.
     :return: Configured FastMCP server instance.
     """
     _state["mass"] = mass
+    if enabled_features is not None:
+        _state["enabled_features"] = enabled_features
 
     # Build server kwargs
     server_kwargs: dict[str, Any] = {
@@ -53,11 +58,28 @@ def create_mcp_server(
 
     mcp = FastMCP(**server_kwargs)
 
-    # Register all tools, resources, and prompts
-    _register_playback_tools(mcp)
-    _register_media_tools(mcp)
-    _register_resources(mcp)
-    _register_prompts(mcp)
+    # Get feature flags with defaults
+    features = enabled_features or {}
+
+    # Register tools, resources, and prompts based on enabled features
+    if features.get("playback_tools", True):
+        _register_playback_tools(mcp)
+    if features.get("queue_tools", True):
+        _register_queue_tools(mcp)
+    if features.get("volume_tools", True):
+        _register_volume_tools(mcp)
+    if features.get("library_tools", True):
+        _register_library_tools(mcp)
+    if features.get("playlist_tools", True):
+        _register_playlist_tools(mcp)
+    if features.get("player_tools", True):
+        _register_player_tools(mcp)
+    if features.get("player_resources", True):
+        _register_player_resources(mcp)
+    if features.get("library_resources", True):
+        _register_library_resources(mcp)
+    if features.get("prompts", True):
+        _register_prompts(mcp)
 
     return mcp
 
@@ -70,7 +92,12 @@ def _get_mass() -> MusicAssistant | None:
     return mass  # type: ignore[no-any-return]
 
 
-def _register_playback_tools(mcp: FastMCP) -> None:
+# =============================================================================
+# PLAYBACK CONTROL TOOLS
+# =============================================================================
+
+
+def _register_playback_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
     """Register playback control tools."""
 
     @mcp.tool()
@@ -105,7 +132,7 @@ def _register_playback_tools(mcp: FastMCP) -> None:
 
     @mcp.tool()
     async def stop(player_id: str) -> str:
-        """Stop playback on a player.
+        """Stop playback on a player and clear the queue.
 
         :param player_id: The ID of the player/queue to control.
         """
@@ -149,37 +176,104 @@ def _register_playback_tools(mcp: FastMCP) -> None:
             return f"Error: {e}"
 
     @mcp.tool()
-    async def set_volume(player_id: str, volume: int) -> str:
-        """Set the volume level of a player.
+    async def seek(player_id: str, position: int) -> str:
+        """Seek to a specific position in the current track.
 
-        :param player_id: The ID of the player to control.
-        :param volume: Volume level from 0 to 100.
+        :param player_id: The ID of the player/queue to control.
+        :param position: Position in seconds to seek to.
         """
         mass = _get_mass()
         if mass is None:
             return "Error: Music Assistant not initialized"
         try:
-            volume = max(0, min(100, volume))
-            await mass.players.cmd_volume_set(player_id, volume)
-            return f"Volume set to {volume}% on {player_id}"
+            await mass.player_queues.seek(player_id, position)
+            return f"Seeked to {position}s on {player_id}"
         except Exception as e:
             return f"Error: {e}"
 
+    @mcp.tool()
+    async def skip_forward(player_id: str, seconds: int = 30) -> str:
+        """Skip forward by a number of seconds.
 
-def _register_media_tools(mcp: FastMCP) -> None:
-    """Register media search and playback tools."""
+        :param player_id: The ID of the player/queue to control.
+        :param seconds: Number of seconds to skip forward (default 30).
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            await mass.player_queues.skip(player_id, seconds)
+            return f"Skipped forward {seconds}s on {player_id}"
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def skip_backward(player_id: str, seconds: int = 30) -> str:
+        """Skip backward by a number of seconds.
+
+        :param player_id: The ID of the player/queue to control.
+        :param seconds: Number of seconds to skip backward (default 30).
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            await mass.player_queues.skip(player_id, -seconds)
+            return f"Skipped backward {seconds}s on {player_id}"
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def play_media(
+        player_id: str,
+        uri: str,
+        enqueue_mode: str = "play",
+        radio_mode: bool = False,
+    ) -> str:
+        """Play a media item by URI on a player.
+
+        :param player_id: The ID of the player/queue to play on.
+        :param uri: The URI of the media item (from search or library).
+        :param enqueue_mode: How to add to queue: play, next, add, replace.
+        :param radio_mode: If true, create an endless radio based on the item.
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            from music_assistant_models.enums import QueueOption  # noqa: PLC0415
+
+            option_map = {
+                "play": QueueOption.PLAY,
+                "next": QueueOption.NEXT,
+                "add": QueueOption.ADD,
+                "replace": QueueOption.REPLACE,
+            }
+            option = option_map.get(enqueue_mode.lower(), QueueOption.PLAY)
+            await mass.player_queues.play_media(
+                queue_id=player_id,
+                media=uri,
+                option=option,
+                radio_mode=radio_mode,
+            )
+            mode_str = " (radio mode)" if radio_mode else ""
+            return f"Playing {uri} on {player_id}{mode_str}"
+        except Exception as e:
+            return f"Error: {e}"
 
     @mcp.tool()
     async def search_music(
         query: str,
         media_types: str = "track,artist,album,playlist",
         limit: int = 10,
+        library_only: bool = False,
     ) -> str:
-        """Search the music library.
+        """Search the music library and streaming providers.
 
         :param query: Search query string.
-        :param media_types: Comma-separated types (track, artist, album, playlist, radio).
-        :param limit: Maximum number of results per media type.
+        :param media_types: Comma-separated types (track,artist,album,playlist,radio).
+        :param limit: Maximum results per media type (default 10).
+        :param library_only: If true, only search the local library.
         """
         mass = _get_mass()
         if mass is None:
@@ -193,6 +287,8 @@ def _register_media_tools(mcp: FastMCP) -> None:
                 "album": MediaType.ALBUM,
                 "playlist": MediaType.PLAYLIST,
                 "radio": MediaType.RADIO,
+                "podcast": MediaType.PODCAST,
+                "audiobook": MediaType.AUDIOBOOK,
             }
             search_types = [
                 types_map[t.strip().lower()]
@@ -204,6 +300,7 @@ def _register_media_tools(mcp: FastMCP) -> None:
                 search_query=query,
                 media_types=search_types,
                 limit=limit,
+                library_only=library_only,
             )
 
             output: dict[str, Any] = {"query": query, "results": {}}
@@ -223,25 +320,833 @@ def _register_media_tools(mcp: FastMCP) -> None:
         except Exception as e:
             return f"Error: {e}"
 
-    @mcp.tool()
-    async def play_media(player_id: str, uri: str) -> str:
-        """Play a specific media item by URI.
 
-        :param player_id: The ID of the player/queue to play on.
-        :param uri: The URI of the media item to play (from search results or library).
+# =============================================================================
+# QUEUE MANAGEMENT TOOLS
+# =============================================================================
+
+
+def _register_queue_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
+    """Register queue management tools."""
+
+    @mcp.tool()
+    async def get_queue(player_id: str, limit: int = 50) -> str:
+        """Get items in a player's queue.
+
+        :param player_id: The ID of the player/queue.
+        :param limit: Maximum number of items to return (default 50).
         """
         mass = _get_mass()
         if mass is None:
             return "Error: Music Assistant not initialized"
         try:
-            await mass.player_queues.play_media(queue_id=player_id, media=uri)
-            return f"Playing {uri} on {player_id}"
+            items = mass.player_queues.items(player_id, limit=limit)
+            queue = mass.player_queues.get(player_id)
+            current_index = queue.current_index if queue else 0
+
+            output = {
+                "queue_id": player_id,
+                "current_index": current_index,
+                "total_items": len(items),
+                "items": [
+                    {
+                        "index": i,
+                        "name": item.name,
+                        "uri": item.uri if hasattr(item, "uri") else None,
+                        "duration": item.duration,
+                        "is_current": i == current_index,
+                    }
+                    for i, item in enumerate(items)
+                ],
+            }
+            return json.dumps(output, indent=2)
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def clear_queue(player_id: str) -> str:
+        """Clear all items from a player's queue.
+
+        :param player_id: The ID of the player/queue.
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            mass.player_queues.clear(player_id)
+            return f"Queue cleared on {player_id}"
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def shuffle_queue(player_id: str, enabled: bool) -> str:
+        """Enable or disable shuffle mode on a player's queue.
+
+        :param player_id: The ID of the player/queue.
+        :param enabled: True to enable shuffle, False to disable.
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            await mass.player_queues.set_shuffle(player_id, enabled)
+            state = "enabled" if enabled else "disabled"
+            return f"Shuffle {state} on {player_id}"
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def repeat_queue(player_id: str, mode: str) -> str:
+        """Set repeat mode on a player's queue.
+
+        :param player_id: The ID of the player/queue.
+        :param mode: Repeat mode: 'off', 'one' (repeat track), 'all' (repeat queue).
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            from music_assistant_models.enums import RepeatMode  # noqa: PLC0415
+
+            mode_map = {
+                "off": RepeatMode.OFF,
+                "one": RepeatMode.ONE,
+                "all": RepeatMode.ALL,
+            }
+            repeat_mode = mode_map.get(mode.lower(), RepeatMode.OFF)
+            mass.player_queues.set_repeat(player_id, repeat_mode)
+            return f"Repeat mode set to '{mode}' on {player_id}"
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def move_queue_item(
+        player_id: str,
+        item_id: str,
+        position_shift: int,
+    ) -> str:
+        """Move an item in the queue by a relative position.
+
+        :param player_id: The ID of the player/queue.
+        :param item_id: The queue item ID to move.
+        :param position_shift: Number of positions to move (+/- for up/down).
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            mass.player_queues.move_item(player_id, item_id, position_shift)
+            direction = "up" if position_shift < 0 else "down"
+            return f"Moved item {abs(position_shift)} position(s) {direction}"
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def remove_queue_item(player_id: str, item_id: str) -> str:
+        """Remove an item from the queue.
+
+        :param player_id: The ID of the player/queue.
+        :param item_id: The queue item ID or index to remove.
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            mass.player_queues.delete_item(player_id, item_id)
+            return f"Removed item {item_id} from queue"
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def play_queue_index(player_id: str, index: int) -> str:
+        """Play a specific item in the queue by index.
+
+        :param player_id: The ID of the player/queue.
+        :param index: The index of the item to play (0-based).
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            await mass.player_queues.play_index(player_id, index)
+            return f"Playing queue item at index {index}"
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def transfer_queue(
+        source_player_id: str,
+        target_player_id: str,
+    ) -> str:
+        """Transfer a queue from one player to another.
+
+        :param source_player_id: The player to transfer from.
+        :param target_player_id: The player to transfer to.
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            await mass.player_queues.transfer_queue(source_player_id, target_player_id)
+            return f"Queue transferred from {source_player_id} to {target_player_id}"
         except Exception as e:
             return f"Error: {e}"
 
 
-def _register_resources(mcp: FastMCP) -> None:
-    """Register all MCP resources."""
+# =============================================================================
+# VOLUME CONTROL TOOLS
+# =============================================================================
+
+
+def _register_volume_tools(mcp: FastMCP) -> None:
+    """Register volume control tools."""
+
+    @mcp.tool()
+    async def set_volume(player_id: str, volume: int) -> str:
+        """Set the volume level of a player.
+
+        :param player_id: The ID of the player to control.
+        :param volume: Volume level from 0 to 100.
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            volume = max(0, min(100, volume))
+            await mass.players.cmd_volume_set(player_id, volume)
+            return f"Volume set to {volume}% on {player_id}"
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def volume_up(player_id: str) -> str:
+        """Increase the volume of a player by one step.
+
+        :param player_id: The ID of the player to control.
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            await mass.players.cmd_volume_up(player_id)
+            return f"Volume increased on {player_id}"
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def volume_down(player_id: str) -> str:
+        """Decrease the volume of a player by one step.
+
+        :param player_id: The ID of the player to control.
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            await mass.players.cmd_volume_down(player_id)
+            return f"Volume decreased on {player_id}"
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def mute(player_id: str, muted: bool) -> str:
+        """Mute or unmute a player.
+
+        :param player_id: The ID of the player to control.
+        :param muted: True to mute, False to unmute.
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            await mass.players.cmd_volume_mute(player_id, muted)
+            state = "muted" if muted else "unmuted"
+            return f"Player {player_id} {state}"
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def set_group_volume(player_id: str, volume: int) -> str:
+        """Set the volume for all players in a group.
+
+        :param player_id: The ID of the group player.
+        :param volume: Volume level from 0 to 100.
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            volume = max(0, min(100, volume))
+            await mass.players.cmd_group_volume(player_id, volume)
+            return f"Group volume set to {volume}% on {player_id}"
+        except Exception as e:
+            return f"Error: {e}"
+
+
+# =============================================================================
+# LIBRARY & DISCOVERY TOOLS
+# =============================================================================
+
+
+def _register_library_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
+    """Register library and discovery tools."""
+
+    @mcp.tool()
+    async def get_recommendations() -> str:
+        """Get personalized music recommendations."""
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            recommendations = await mass.music.recommendations()
+            output = []
+            for folder in recommendations:
+                items = []
+                for item in folder.items[:10]:  # Limit items per folder
+                    items.append({"name": item.name, "uri": item.uri})
+                output.append({"category": folder.name, "items": items})
+            return json.dumps({"recommendations": output}, indent=2)
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def get_recently_played(limit: int = 20) -> str:
+        """Get recently played items.
+
+        :param limit: Maximum number of items to return (default 20).
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            items = await mass.music.recently_played(limit=limit)
+            output = [
+                {"name": item.name, "uri": item.uri, "type": item.media_type.value}
+                for item in items
+            ]
+            return json.dumps({"recently_played": output}, indent=2)
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def get_recently_added(limit: int = 20) -> str:
+        """Get recently added tracks to the library.
+
+        :param limit: Maximum number of items to return (default 20).
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            items = await mass.music.recently_added_tracks(limit=limit)
+            output = [{"name": item.name, "uri": item.uri} for item in items]
+            return json.dumps({"recently_added": output}, indent=2)
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def get_similar_tracks(track_uri: str, limit: int = 25) -> str:
+        """Get tracks similar to a given track.
+
+        :param track_uri: The URI of the track to find similar tracks for.
+        :param limit: Maximum number of similar tracks (default 25).
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            from music_assistant.helpers.uri import parse_uri  # noqa: PLC0415
+
+            # Parse the URI to get provider and item_id
+            _, provider, item_id = await parse_uri(track_uri)
+
+            similar = await mass.music.tracks.similar_tracks(item_id, provider, limit=limit)
+            output = [{"name": t.name, "uri": t.uri} for t in similar]
+            return json.dumps({"similar_tracks": output}, indent=2)
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def browse_library(path: str = "") -> str:
+        """Browse the music library by path.
+
+        :param path: Path to browse (empty for root). Examples: 'library://artists'.
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            items = await mass.music.browse(path or None)
+            output = []
+            for item in items[:50]:  # Limit to 50 items
+                entry = {"name": item.name, "uri": item.uri}
+                if hasattr(item, "path"):
+                    entry["path"] = item.path
+                output.append(entry)
+            return json.dumps({"items": output, "path": path}, indent=2)
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def get_artist_tracks(artist_uri: str, limit: int = 50) -> str:
+        """Get all tracks by an artist.
+
+        :param artist_uri: The URI of the artist.
+        :param limit: Maximum number of tracks (default 50).
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            from music_assistant.helpers.uri import parse_uri  # noqa: PLC0415
+
+            _, provider, item_id = await parse_uri(artist_uri)
+            artist = await mass.music.get_item_by_uri(artist_uri)
+            if not artist:
+                return f"Error: Artist not found: {artist_uri}"
+
+            all_tracks = await mass.music.artists.tracks(item_id, provider)
+            tracks = [{"name": t.name, "uri": t.uri} for t in all_tracks[:limit]]
+
+            return json.dumps({"artist": artist.name, "tracks": tracks}, indent=2)
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def get_artist_albums(artist_uri: str, limit: int = 50) -> str:
+        """Get all albums by an artist.
+
+        :param artist_uri: The URI of the artist.
+        :param limit: Maximum number of albums (default 50).
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            from music_assistant.helpers.uri import parse_uri  # noqa: PLC0415
+
+            _, provider, item_id = await parse_uri(artist_uri)
+            artist = await mass.music.get_item_by_uri(artist_uri)
+            if not artist:
+                return f"Error: Artist not found: {artist_uri}"
+
+            all_albums = await mass.music.artists.albums(item_id, provider)
+            albums = [{"name": a.name, "uri": a.uri} for a in all_albums[:limit]]
+
+            return json.dumps({"artist": artist.name, "albums": albums}, indent=2)
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def get_album_tracks(album_uri: str) -> str:
+        """Get all tracks on an album.
+
+        :param album_uri: The URI of the album.
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            from music_assistant.helpers.uri import parse_uri  # noqa: PLC0415
+
+            _, provider, item_id = await parse_uri(album_uri)
+            album = await mass.music.get_item_by_uri(album_uri)
+            if not album:
+                return f"Error: Album not found: {album_uri}"
+
+            all_tracks = await mass.music.albums.tracks(item_id, provider)
+            tracks = [
+                {"name": t.name, "uri": t.uri, "track_number": t.track_number} for t in all_tracks
+            ]
+
+            return json.dumps({"album": album.name, "tracks": tracks}, indent=2)
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def add_to_library(uri: str) -> str:
+        """Add an item to the user's library.
+
+        :param uri: The URI of the item to add to library.
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            await mass.music.add_item_to_library(uri)
+            return f"Added {uri} to library"
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def remove_from_library(uri: str) -> str:
+        """Remove an item from the user's library.
+
+        :param uri: The URI of the library item to remove (must be a library:// URI).
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            from music_assistant.helpers.uri import parse_uri  # noqa: PLC0415
+
+            media_type, provider, item_id = await parse_uri(uri)
+            if provider != "library":
+                return "Error: Can only remove library items (use library:// URI)"
+
+            await mass.music.remove_item_from_library(media_type, item_id)
+            return f"Removed {uri} from library"
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def add_to_favorites(uri: str) -> str:
+        """Mark an item as favorite.
+
+        :param uri: The URI of the item to favorite.
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            await mass.music.add_item_to_favorites(uri)
+            return f"Added {uri} to favorites"
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def remove_from_favorites(uri: str) -> str:
+        """Remove an item from favorites.
+
+        :param uri: The URI of the library item to unfavorite (must be a library:// URI).
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            from music_assistant.helpers.uri import parse_uri  # noqa: PLC0415
+
+            media_type, provider, item_id = await parse_uri(uri)
+            if provider != "library":
+                return "Error: Can only unfavorite library items (use library:// URI)"
+
+            await mass.music.remove_item_from_favorites(media_type, item_id)
+            return f"Removed {uri} from favorites"
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def get_library_artists(
+        search: str = "",
+        limit: int = 50,
+        favorites_only: bool = False,
+    ) -> str:
+        """Get artists from the library.
+
+        :param search: Optional search filter.
+        :param limit: Maximum number of artists (default 50).
+        :param favorites_only: Only return favorited artists.
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            artists = await mass.music.artists.library_items(
+                search=search or None,
+                limit=limit,
+                favorite=favorites_only if favorites_only else None,
+            )
+            output = [{"name": a.name, "uri": a.uri} for a in artists]
+            return json.dumps({"artists": output}, indent=2)
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def get_library_albums(
+        search: str = "",
+        limit: int = 50,
+        favorites_only: bool = False,
+    ) -> str:
+        """Get albums from the library.
+
+        :param search: Optional search filter.
+        :param limit: Maximum number of albums (default 50).
+        :param favorites_only: Only return favorited albums.
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            albums = await mass.music.albums.library_items(
+                search=search or None,
+                limit=limit,
+                favorite=favorites_only if favorites_only else None,
+            )
+            output = [{"name": a.name, "uri": a.uri} for a in albums]
+            return json.dumps({"albums": output}, indent=2)
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def get_library_tracks(
+        search: str = "",
+        limit: int = 50,
+        favorites_only: bool = False,
+    ) -> str:
+        """Get tracks from the library.
+
+        :param search: Optional search filter.
+        :param limit: Maximum number of tracks (default 50).
+        :param favorites_only: Only return favorited tracks.
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            tracks = await mass.music.tracks.library_items(
+                search=search or None,
+                limit=limit,
+                favorite=favorites_only if favorites_only else None,
+            )
+            output = [{"name": t.name, "uri": t.uri} for t in tracks]
+            return json.dumps({"tracks": output}, indent=2)
+        except Exception as e:
+            return f"Error: {e}"
+
+
+# =============================================================================
+# PLAYLIST MANAGEMENT TOOLS
+# =============================================================================
+
+
+def _register_playlist_tools(mcp: FastMCP) -> None:
+    """Register playlist management tools."""
+
+    @mcp.tool()
+    async def get_playlists(search: str = "", limit: int = 50) -> str:
+        """Get playlists from the library.
+
+        :param search: Optional search filter.
+        :param limit: Maximum number of playlists (default 50).
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            playlists = await mass.music.playlists.library_items(
+                search=search or None,
+                limit=limit,
+            )
+            output = [{"name": p.name, "uri": p.uri} for p in playlists]
+            return json.dumps({"playlists": output}, indent=2)
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def get_playlist_tracks(playlist_uri: str, limit: int = 100) -> str:
+        """Get tracks in a playlist.
+
+        :param playlist_uri: The URI of the playlist.
+        :param limit: Maximum number of tracks (default 100).
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            playlist = await mass.music.get_item_by_uri(playlist_uri)
+            if not playlist:
+                return f"Error: Playlist not found: {playlist_uri}"
+
+            tracks = []
+            async for track in mass.music.playlists.tracks(playlist.item_id, playlist.provider):
+                tracks.append({"name": track.name, "uri": track.uri})
+                if len(tracks) >= limit:
+                    break
+
+            return json.dumps({"playlist": playlist.name, "tracks": tracks}, indent=2)
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def create_playlist(name: str) -> str:
+        """Create a new playlist.
+
+        :param name: The name for the new playlist.
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            playlist = await mass.music.playlists.create_playlist(name)
+            return json.dumps(
+                {"created": True, "name": playlist.name, "uri": playlist.uri},
+                indent=2,
+            )
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def add_to_playlist(playlist_uri: str, track_uri: str) -> str:
+        """Add a track to a playlist.
+
+        :param playlist_uri: The URI of the playlist.
+        :param track_uri: The URI of the track to add.
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            playlist = await mass.music.get_item_by_uri(playlist_uri)
+            if not playlist:
+                return f"Error: Playlist not found: {playlist_uri}"
+
+            await mass.music.playlists.add_playlist_track(playlist.item_id, track_uri)
+            return f"Added track to playlist {playlist.name}"
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def remove_from_playlist(playlist_uri: str, position: int) -> str:
+        """Remove a track from a playlist by position.
+
+        :param playlist_uri: The URI of the playlist.
+        :param position: The position (0-based index) of the track to remove.
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            from music_assistant.helpers.uri import parse_uri  # noqa: PLC0415
+
+            _, _, item_id = await parse_uri(playlist_uri)
+            playlist = await mass.music.get_item_by_uri(playlist_uri)
+            if not playlist:
+                return f"Error: Playlist not found: {playlist_uri}"
+
+            await mass.music.playlists.remove_playlist_tracks(item_id, (position,))
+            return f"Removed track at position {position} from playlist {playlist.name}"
+        except Exception as e:
+            return f"Error: {e}"
+
+
+# =============================================================================
+# PLAYER MANAGEMENT TOOLS
+# =============================================================================
+
+
+def _register_player_tools(mcp: FastMCP) -> None:
+    """Register player management tools."""
+
+    @mcp.tool()
+    async def power_player(player_id: str, powered: bool) -> str:
+        """Power on or off a player.
+
+        :param player_id: The ID of the player.
+        :param powered: True to power on, False to power off.
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            await mass.players.cmd_power(player_id, powered)
+            state = "on" if powered else "off"
+            return f"Player {player_id} powered {state}"
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def group_players(
+        target_player_id: str,
+        child_player_ids: str,
+    ) -> str:
+        """Group multiple players together for synchronized playback.
+
+        :param target_player_id: The ID of the group leader player.
+        :param child_player_ids: Comma-separated IDs of players to add to group.
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            child_ids = [p.strip() for p in child_player_ids.split(",")]
+            await mass.players.cmd_group_many(target_player_id, child_ids)
+            return f"Grouped players with {target_player_id}"
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def ungroup_player(player_id: str) -> str:
+        """Remove a player from its current group.
+
+        :param player_id: The ID of the player to ungroup.
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            await mass.players.cmd_ungroup(player_id)
+            return f"Player {player_id} ungrouped"
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def play_announcement(
+        player_id: str,
+        url: str,
+        volume: int | None = None,
+    ) -> str:
+        """Play an announcement on a player (TTS or audio URL).
+
+        :param player_id: The ID of the player.
+        :param url: URL of the audio to play.
+        :param volume: Optional volume override (0-100).
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            await mass.players.play_announcement(player_id, url, volume_level=volume)
+            return f"Playing announcement on {player_id}"
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def get_player_by_name(name: str) -> str:
+        """Find a player by its name (partial match supported).
+
+        :param name: The name or partial name of the player.
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            name_lower = name.lower()
+            matches = []
+            for player in mass.players.all():
+                if name_lower in player.display_name.lower():
+                    matches.append(
+                        {
+                            "id": player.player_id,
+                            "name": player.display_name,
+                            "available": player.available,
+                            "state": player.playback_state.value,
+                        }
+                    )
+
+            if not matches:
+                return f"No players found matching '{name}'"
+            return json.dumps({"matches": matches}, indent=2)
+        except Exception as e:
+            return f"Error: {e}"
+
+
+# =============================================================================
+# PLAYER RESOURCES
+# =============================================================================
+
+
+def _register_player_resources(mcp: FastMCP) -> None:
+    """Register player-related MCP resources."""
 
     @mcp.resource("players://")
     async def list_players() -> str:
@@ -261,6 +1166,7 @@ def _register_resources(mcp: FastMCP) -> None:
                     "volume": player.volume_level,
                     "muted": player.volume_muted,
                     "type": player.type.value if player.type else "unknown",
+                    "powered": player.powered,
                 }
             )
 
@@ -286,6 +1192,7 @@ def _register_resources(mcp: FastMCP) -> None:
                 "state": queue.state.value if queue.state else "unknown",
                 "shuffle": queue.shuffle_enabled,
                 "repeat": queue.repeat_mode.value if queue.repeat_mode else "off",
+                "current_index": queue.current_index,
                 "current_track": (
                     {
                         "name": current_item.name if current_item else None,
@@ -311,6 +1218,7 @@ def _register_resources(mcp: FastMCP) -> None:
                     "muted": player.volume_muted,
                     "type": player.type.value if player.type else "unknown",
                     "powered": player.powered,
+                    "group_members": player.group_members,
                 },
                 "queue": queue_info,
             },
@@ -344,6 +1252,142 @@ def _register_resources(mcp: FastMCP) -> None:
             },
             indent=2,
         )
+
+    @mcp.resource("queue://{player_id}")
+    async def get_queue_contents(player_id: str) -> str:
+        """Get the full queue contents for a player."""
+        mass = _get_mass()
+        if mass is None:
+            return json.dumps({"error": "Music Assistant not initialized"})
+
+        queue = mass.player_queues.get(player_id)
+        if not queue:
+            return json.dumps({"error": f"Queue for {player_id} not found"})
+
+        items = mass.player_queues.items(player_id, limit=100)
+        queue_items = []
+        for item in items:
+            queue_items.append(
+                {
+                    "index": item.queue_item_id,
+                    "name": item.name,
+                    "uri": item.uri if hasattr(item, "uri") else None,
+                    "duration": item.duration,
+                }
+            )
+
+        return json.dumps(
+            {
+                "queue": {
+                    "player_id": player_id,
+                    "current_index": queue.current_index,
+                    "shuffle": queue.shuffle_enabled,
+                    "repeat": queue.repeat_mode.value if queue.repeat_mode else "off",
+                    "items": queue_items,
+                    "total_items": len(queue_items),
+                }
+            },
+            indent=2,
+        )
+
+
+# =============================================================================
+# LIBRARY RESOURCES
+# =============================================================================
+
+
+def _register_library_resources(mcp: FastMCP) -> None:
+    """Register library-related MCP resources."""
+
+    @mcp.resource("library://stats")
+    async def get_library_stats() -> str:
+        """Get statistics about the music library."""
+        mass = _get_mass()
+        if mass is None:
+            return json.dumps({"error": "Music Assistant not initialized"})
+
+        try:
+            stats = {
+                "artists": await mass.music.artists.library_count(),
+                "albums": await mass.music.albums.library_count(),
+                "tracks": await mass.music.tracks.library_count(),
+                "playlists": await mass.music.playlists.library_count(),
+            }
+            return json.dumps({"library_stats": stats}, indent=2)
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    @mcp.resource("library://favorites")
+    async def get_favorites() -> str:
+        """Get the user's favorite items from the library."""
+        mass = _get_mass()
+        if mass is None:
+            return json.dumps({"error": "Music Assistant not initialized"})
+
+        try:
+            favorites: dict[str, list[dict[str, str | None]]] = {
+                "artists": [],
+                "albums": [],
+                "tracks": [],
+            }
+
+            # Get favorite artists (limit 20)
+            artists = await mass.music.artists.library_items(favorite=True, limit=20)
+            for artist in artists:
+                favorites["artists"].append({"name": artist.name, "uri": artist.uri})
+
+            # Get favorite albums (limit 20)
+            albums = await mass.music.albums.library_items(favorite=True, limit=20)
+            for album in albums:
+                favorites["albums"].append({"name": album.name, "uri": album.uri})
+
+            # Get favorite tracks (limit 30)
+            tracks = await mass.music.tracks.library_items(favorite=True, limit=30)
+            for track in tracks:
+                favorites["tracks"].append({"name": track.name, "uri": track.uri})
+
+            return json.dumps({"favorites": favorites}, indent=2)
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    @mcp.resource("library://recently_played")
+    async def get_recently_played_resource() -> str:
+        """Get recently played items from the library."""
+        mass = _get_mass()
+        if mass is None:
+            return json.dumps({"error": "Music Assistant not initialized"})
+
+        try:
+            recently_played = await mass.music.recently_played(limit=30)
+            items = [{"name": item.name, "uri": item.uri} for item in recently_played]
+            return json.dumps({"recently_played": items}, indent=2)
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    @mcp.resource("providers://")
+    async def list_providers() -> str:
+        """List all configured music providers."""
+        mass = _get_mass()
+        if mass is None:
+            return json.dumps({"error": "Music Assistant not initialized"})
+
+        providers = []
+        for provider in mass.music.providers:
+            providers.append(
+                {
+                    "id": provider.instance_id,
+                    "name": provider.name,
+                    "domain": provider.domain,
+                    "available": provider.available,
+                }
+            )
+
+        return json.dumps({"providers": providers}, indent=2)
+
+
+# =============================================================================
+# PROMPTS
+# =============================================================================
 
 
 def _register_prompts(mcp: FastMCP) -> None:
@@ -402,12 +1446,18 @@ def _register_prompts(mcp: FastMCP) -> None:
         return f"Controlling {player.display_name}, state: {state}, volume: {volume}%"
 
 
+# =============================================================================
+# SERVER STARTUP
+# =============================================================================
+
+
 async def start_mcp_server(
     mass: MusicAssistant,
     port: int,
     require_auth: bool,
     intro_prompt: str,
     player_context_prompt: str,
+    enabled_features: dict[str, bool],
     logger: logging.Logger,
 ) -> tuple[asyncio.Task[Any], asyncio.Event]:
     """Start the MCP server.
@@ -417,15 +1467,17 @@ async def start_mcp_server(
     :param require_auth: Whether to require authentication.
     :param intro_prompt: Template for the introduction prompt.
     :param player_context_prompt: Template for the player context prompt.
+    :param enabled_features: Dictionary of feature flags to enable/disable tool categories.
     :param logger: Logger instance.
     :return: Tuple of (server task, shutdown event).
     """
     _state["logger"] = logger
     _state["intro_prompt"] = intro_prompt
     _state["player_context_prompt"] = player_context_prompt
+    _state["enabled_features"] = enabled_features
 
-    # Create the MCP server with authentication if required
-    mcp = create_mcp_server(mass, require_auth)
+    # Create the MCP server with authentication and feature flags
+    mcp = create_mcp_server(mass, require_auth, enabled_features)
 
     shutdown_event = asyncio.Event()
 
