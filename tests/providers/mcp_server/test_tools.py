@@ -162,8 +162,12 @@ async def test_search_music(mock_mass: Mock) -> None:
     assert search_tool is not None
     result = await search_tool.fn(query="test song")
     data = json.loads(result)
-    assert "query" in data
     assert data["query"] == "test song"
+    assert "results" in data
+    # Verify search results contain tracks from mock
+    assert "tracks" in data["results"]
+    assert len(data["results"]["tracks"]) > 0
+    assert data["results"]["tracks"][0]["name"] == "Test Track"
     mock_mass.music.search.assert_called_once()
 
 
@@ -182,8 +186,12 @@ async def test_get_queue() -> None:
     assert queue_tool is not None
     result = await queue_tool.fn(player_id="player_1")
     data = json.loads(result)
-    assert "queue_id" in data
+    assert data["queue_id"] == "player_1"
     assert "items" in data
+    assert "current_index" in data
+    # Verify items structure from mock
+    assert len(data["items"]) > 0
+    assert data["items"][0]["name"] == "Test Track"
 
 
 @pytest.mark.usefixtures("setup_mcp_state")
@@ -236,6 +244,58 @@ async def test_transfer_queue(mock_mass: Mock) -> None:
     result = await transfer_tool.fn(source_player_id="player_1", target_player_id="player_2")
     assert "transferred" in result.lower()
     mock_mass.player_queues.transfer_queue.assert_called_once_with("player_1", "player_2")
+
+
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_move_queue_item(mock_mass: Mock) -> None:
+    """Test move_queue_item tool."""
+    mcp = FastMCP("test")
+    _register_queue_tools(mcp)
+
+    move_tool = _get_tool(mcp, "move_queue_item")
+    assert move_tool is not None
+    result = await move_tool.fn(player_id="player_1", queue_item_id="qi_1", position_shift=-2)
+    assert "up" in result.lower()
+    mock_mass.player_queues.move_item.assert_called_once_with("player_1", "qi_1", -2)
+
+
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_move_queue_item_down(mock_mass: Mock) -> None:
+    """Test move_queue_item tool moving down."""
+    mcp = FastMCP("test")
+    _register_queue_tools(mcp)
+
+    move_tool = _get_tool(mcp, "move_queue_item")
+    assert move_tool is not None
+    result = await move_tool.fn(player_id="player_1", queue_item_id="qi_1", position_shift=3)
+    assert "down" in result.lower()
+    mock_mass.player_queues.move_item.assert_called_once_with("player_1", "qi_1", 3)
+
+
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_remove_queue_item(mock_mass: Mock) -> None:
+    """Test remove_queue_item tool."""
+    mcp = FastMCP("test")
+    _register_queue_tools(mcp)
+
+    remove_tool = _get_tool(mcp, "remove_queue_item")
+    assert remove_tool is not None
+    result = await remove_tool.fn(player_id="player_1", queue_item_id="qi_1")
+    assert "removed" in result.lower()
+    mock_mass.player_queues.delete_item.assert_called_once_with("player_1", "qi_1")
+
+
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_play_queue_index(mock_mass: Mock) -> None:
+    """Test play_queue_index tool."""
+    mcp = FastMCP("test")
+    _register_queue_tools(mcp)
+
+    play_idx_tool = _get_tool(mcp, "play_queue_index")
+    assert play_idx_tool is not None
+    result = await play_idx_tool.fn(player_id="player_1", index=5)
+    assert "5" in result
+    mock_mass.player_queues.play_index.assert_called_once_with("player_1", 5)
 
 
 # =============================================================================
@@ -307,6 +367,32 @@ async def test_mute(mock_mass: Mock) -> None:
     mock_mass.players.cmd_volume_mute.assert_called_once_with("player_1", True)
 
 
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_set_group_volume(mock_mass: Mock) -> None:
+    """Test set_group_volume tool."""
+    mcp = FastMCP("test")
+    _register_volume_tools(mcp)
+
+    vol_tool = _get_tool(mcp, "set_group_volume")
+    assert vol_tool is not None
+    result = await vol_tool.fn(player_id="player_1", volume=60)
+    assert "60" in result
+    assert "group" in result.lower()
+    mock_mass.players.cmd_group_volume.assert_called_once_with("player_1", 60)
+
+
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_set_group_volume_clamped(mock_mass: Mock) -> None:
+    """Test set_group_volume clamps values to 0-100."""
+    mcp = FastMCP("test")
+    _register_volume_tools(mcp)
+
+    vol_tool = _get_tool(mcp, "set_group_volume")
+    assert vol_tool is not None
+    await vol_tool.fn(player_id="player_1", volume=-10)
+    mock_mass.players.cmd_group_volume.assert_called_with("player_1", 0)
+
+
 # =============================================================================
 # PLAYER TOOLS
 # =============================================================================
@@ -366,6 +452,23 @@ async def test_get_player_by_name() -> None:
     assert data["matches"][0]["name"] == "Living Room"
 
 
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_play_announcement(mock_mass: Mock) -> None:
+    """Test play_announcement tool."""
+    mcp = FastMCP("test")
+    _register_player_tools(mcp)
+
+    announce_tool = _get_tool(mcp, "play_announcement")
+    assert announce_tool is not None
+    result = await announce_tool.fn(
+        player_id="player_1", url="http://example.com/audio.mp3", volume=80
+    )
+    assert "announcement" in result.lower()
+    mock_mass.players.play_announcement.assert_called_once_with(
+        "player_1", "http://example.com/audio.mp3", volume_level=80
+    )
+
+
 # =============================================================================
 # LIBRARY TOOLS
 # =============================================================================
@@ -412,6 +515,171 @@ async def test_add_to_favorites(mock_mass: Mock) -> None:
     mock_mass.music.add_item_to_favorites.assert_called_once()
 
 
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_remove_from_favorites(mock_mass: Mock) -> None:
+    """Test remove_from_favorites tool."""
+    mcp = FastMCP("test")
+    _register_library_tools(mcp)
+
+    fav_tool = _get_tool(mcp, "remove_from_favorites")
+    assert fav_tool is not None
+    result = await fav_tool.fn(uri="library://track/123")
+    assert "removed" in result.lower()
+    mock_mass.music.remove_item_from_favorites.assert_called_once()
+
+
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_get_recommendations(mock_mass: Mock) -> None:
+    """Test get_recommendations tool."""
+    mcp = FastMCP("test")
+    _register_library_tools(mcp)
+
+    rec_tool = _get_tool(mcp, "get_recommendations")
+    assert rec_tool is not None
+    result = await rec_tool.fn()
+    data = json.loads(result)
+    assert "recommendations" in data
+    mock_mass.music.recommendations.assert_called_once()
+
+
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_get_recently_added(mock_mass: Mock) -> None:
+    """Test get_recently_added tool."""
+    mcp = FastMCP("test")
+    _register_library_tools(mcp)
+
+    recent_tool = _get_tool(mcp, "get_recently_added")
+    assert recent_tool is not None
+    result = await recent_tool.fn(limit=10)
+    data = json.loads(result)
+    assert "recently_added" in data
+    mock_mass.music.recently_added_tracks.assert_called_once_with(limit=10)
+
+
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_get_similar_tracks(mock_mass: Mock) -> None:
+    """Test get_similar_tracks tool."""
+    mcp = FastMCP("test")
+    _register_library_tools(mcp)
+
+    similar_tool = _get_tool(mcp, "get_similar_tracks")
+    assert similar_tool is not None
+    result = await similar_tool.fn(track_uri="library://track/123", limit=15)
+    data = json.loads(result)
+    assert "similar_tracks" in data
+    mock_mass.music.tracks.similar_tracks.assert_called_once()
+
+
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_get_artist_tracks(mock_mass: Mock) -> None:
+    """Test get_artist_tracks tool."""
+    mcp = FastMCP("test")
+    _register_library_tools(mcp)
+
+    artist_tool = _get_tool(mcp, "get_artist_tracks")
+    assert artist_tool is not None
+    result = await artist_tool.fn(artist_uri="library://artist/456")
+    data = json.loads(result)
+    assert "tracks" in data
+    mock_mass.music.artists.tracks.assert_called_once()
+
+
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_get_artist_albums(mock_mass: Mock) -> None:
+    """Test get_artist_albums tool."""
+    mcp = FastMCP("test")
+    _register_library_tools(mcp)
+
+    artist_tool = _get_tool(mcp, "get_artist_albums")
+    assert artist_tool is not None
+    result = await artist_tool.fn(artist_uri="library://artist/456")
+    data = json.loads(result)
+    assert "albums" in data
+    mock_mass.music.artists.albums.assert_called_once()
+
+
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_get_album_tracks(mock_mass: Mock) -> None:
+    """Test get_album_tracks tool."""
+    mcp = FastMCP("test")
+    _register_library_tools(mcp)
+
+    album_tool = _get_tool(mcp, "get_album_tracks")
+    assert album_tool is not None
+    result = await album_tool.fn(album_uri="library://album/789")
+    data = json.loads(result)
+    assert "tracks" in data
+    mock_mass.music.albums.tracks.assert_called_once()
+
+
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_add_to_library(mock_mass: Mock) -> None:
+    """Test add_to_library tool."""
+    mcp = FastMCP("test")
+    _register_library_tools(mcp)
+
+    lib_tool = _get_tool(mcp, "add_to_library")
+    assert lib_tool is not None
+    result = await lib_tool.fn(uri="spotify://track/abc")
+    assert "library" in result.lower()
+    mock_mass.music.add_item_to_library.assert_called_once_with("spotify://track/abc")
+
+
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_remove_from_library(mock_mass: Mock) -> None:
+    """Test remove_from_library tool."""
+    mcp = FastMCP("test")
+    _register_library_tools(mcp)
+
+    lib_tool = _get_tool(mcp, "remove_from_library")
+    assert lib_tool is not None
+    result = await lib_tool.fn(uri="library://track/123")
+    assert "removed" in result.lower()
+    mock_mass.music.remove_item_from_library.assert_called_once()
+
+
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_get_library_artists(mock_mass: Mock) -> None:
+    """Test get_library_artists tool."""
+    mcp = FastMCP("test")
+    _register_library_tools(mcp)
+
+    lib_tool = _get_tool(mcp, "get_library_artists")
+    assert lib_tool is not None
+    result = await lib_tool.fn(limit=25)
+    data = json.loads(result)
+    assert "artists" in data
+    mock_mass.music.artists.library_items.assert_called()
+
+
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_get_library_albums(mock_mass: Mock) -> None:
+    """Test get_library_albums tool."""
+    mcp = FastMCP("test")
+    _register_library_tools(mcp)
+
+    lib_tool = _get_tool(mcp, "get_library_albums")
+    assert lib_tool is not None
+    result = await lib_tool.fn(limit=25)
+    data = json.loads(result)
+    assert "albums" in data
+    mock_mass.music.albums.library_items.assert_called()
+
+
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_get_library_tracks(mock_mass: Mock) -> None:
+    """Test get_library_tracks tool."""
+    mcp = FastMCP("test")
+    _register_library_tools(mcp)
+
+    lib_tool = _get_tool(mcp, "get_library_tracks")
+    assert lib_tool is not None
+    result = await lib_tool.fn(limit=25)
+    data = json.loads(result)
+    assert "tracks" in data
+    mock_mass.music.tracks.library_items.assert_called()
+
+
 # =============================================================================
 # PLAYLIST TOOLS
 # =============================================================================
@@ -443,6 +711,49 @@ async def test_create_playlist(mock_mass: Mock) -> None:
     data = json.loads(result)
     assert data["created"] is True
     mock_mass.music.playlists.create_playlist.assert_called_once_with("My New Playlist")
+
+
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_get_playlist_tracks(mock_mass: Mock) -> None:
+    """Test get_playlist_tracks tool."""
+    mcp = FastMCP("test")
+    _register_playlist_tools(mcp)
+
+    pl_tool = _get_tool(mcp, "get_playlist_tracks")
+    assert pl_tool is not None
+    result = await pl_tool.fn(playlist_uri="library://playlist/101")
+    data = json.loads(result)
+    assert "tracks" in data
+    assert "playlist" in data
+    mock_mass.music.get_item_by_uri.assert_called()
+
+
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_add_to_playlist(mock_mass: Mock) -> None:
+    """Test add_to_playlist tool."""
+    mcp = FastMCP("test")
+    _register_playlist_tools(mcp)
+
+    add_tool = _get_tool(mcp, "add_to_playlist")
+    assert add_tool is not None
+    result = await add_tool.fn(
+        playlist_uri="library://playlist/101", track_uri="library://track/123"
+    )
+    assert "added" in result.lower()
+    mock_mass.music.playlists.add_playlist_track.assert_called_once()
+
+
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_remove_from_playlist(mock_mass: Mock) -> None:
+    """Test remove_from_playlist tool."""
+    mcp = FastMCP("test")
+    _register_playlist_tools(mcp)
+
+    remove_tool = _get_tool(mcp, "remove_from_playlist")
+    assert remove_tool is not None
+    result = await remove_tool.fn(playlist_uri="library://playlist/101", position=2)
+    assert "removed" in result.lower()
+    mock_mass.music.playlists.remove_playlist_tracks.assert_called_once()
 
 
 # =============================================================================

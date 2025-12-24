@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 from typing import TYPE_CHECKING, Any
@@ -37,6 +38,8 @@ def create_mcp_server(
     if enabled_features is not None:
         _state["enabled_features"] = enabled_features
 
+    from mcp.server.transport_security import TransportSecuritySettings  # noqa: PLC0415
+
     server_kwargs: dict[str, Any] = {
         "name": "Music Assistant",
         "instructions": (
@@ -45,11 +48,25 @@ def create_mcp_server(
         ),
         "stateless_http": True,
         "json_response": True,
+        # Disable DNS rebinding protection to allow connections from any host
+        "transport_security": TransportSecuritySettings(
+            enable_dns_rebinding_protection=False,
+        ),
     }
 
     if require_auth:
+        from mcp.server.auth.settings import AuthSettings  # noqa: PLC0415
+        from pydantic import AnyHttpUrl  # noqa: PLC0415
+
         from .auth import MusicAssistantTokenVerifier  # noqa: PLC0415
 
+        # Use MA webserver as issuer for token validation
+        # Set resource_server_url=None to avoid OAuth protected resource discovery
+        base_url = mass.webserver.base_url
+        server_kwargs["auth"] = AuthSettings(
+            issuer_url=AnyHttpUrl(base_url),
+            resource_server_url=None,
+        )
         server_kwargs["token_verifier"] = MusicAssistantTokenVerifier(mass)
 
     mcp = FastMCP(**server_kwargs)
@@ -344,6 +361,7 @@ def _register_queue_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
                 "items": [
                     {
                         "index": i,
+                        "queue_item_id": item.queue_item_id,
                         "name": item.name,
                         "uri": item.uri if hasattr(item, "uri") else None,
                         "duration": item.duration,
@@ -415,38 +433,54 @@ def _register_queue_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
     @mcp.tool()
     async def move_queue_item(
         player_id: str,
-        item_id: str,
         position_shift: int,
+        queue_item_id: str | None = None,
+        index: int | None = None,
     ) -> str:
         """Move an item in the queue by a relative position.
 
         :param player_id: Player ID.
-        :param item_id: The queue item ID to move.
         :param position_shift: Number of positions to move (+/- for up/down).
+        :param queue_item_id: The queue_item_id from get_queue output.
+        :param index: Alternatively, the index of the item to move (0-based).
         """
         mass = _get_mass()
         if mass is None:
             return "Error: Music Assistant not initialized"
+        if queue_item_id is None and index is None:
+            return "Error: Must provide either queue_item_id or index"
         try:
-            mass.player_queues.move_item(player_id, item_id, position_shift)
+            # If index provided, look up the queue_item_id
+            if queue_item_id is None and index is not None:
+                items = mass.player_queues.items(player_id)
+                if index < 0 or index >= len(items):
+                    return f"Error: Index {index} out of range"
+                queue_item_id = items[index].queue_item_id
+            mass.player_queues.move_item(player_id, queue_item_id, position_shift)  # type: ignore[arg-type]
             direction = "up" if position_shift < 0 else "down"
             return f"Moved item {abs(position_shift)} position(s) {direction}"
         except Exception as e:
             return f"Error: {e}"
 
     @mcp.tool()
-    async def remove_queue_item(player_id: str, item_id: str) -> str:
+    async def remove_queue_item(
+        player_id: str, queue_item_id: str | None = None, index: int | None = None
+    ) -> str:
         """Remove an item from the queue.
 
         :param player_id: Player ID.
-        :param item_id: The queue item ID or index to remove.
+        :param queue_item_id: The queue_item_id from get_queue output.
+        :param index: Alternatively, the index of the item to remove (0-based).
         """
         mass = _get_mass()
         if mass is None:
             return "Error: Music Assistant not initialized"
+        if queue_item_id is None and index is None:
+            return "Error: Must provide either queue_item_id or index"
         try:
-            mass.player_queues.delete_item(player_id, item_id)
-            return f"Removed item {item_id} from queue"
+            item_id_or_index: str | int = queue_item_id if queue_item_id else index  # type: ignore[assignment]
+            mass.player_queues.delete_item(player_id, item_id_or_index)
+            return "Removed item from queue"
         except Exception as e:
             return f"Error: {e}"
 
@@ -1519,31 +1553,49 @@ async def start_mcp_server(
     async def run_server() -> None:
         """Run the uvicorn server."""
         import uvicorn  # noqa: PLC0415
+        from starlette.middleware.cors import CORSMiddleware  # noqa: PLC0415
 
-        # Configure the MCP server path
-        mcp.settings.streamable_http_path = "/"
+        # Get the base app
+        app = mcp.streamable_http_app()
+
+        # Add CORS middleware to handle preflight OPTIONS requests
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+            expose_headers=["*"],
+        )
 
         config = uvicorn.Config(
-            app=mcp.streamable_http_app(),
+            app=app,
             host="0.0.0.0",
             port=port,
-            log_level="warning",
-            access_log=False,
+            log_level="info",
+            access_log=True,
         )
         server = uvicorn.Server(config)
 
-        # Run server until shutdown is requested
-        server_task = asyncio.create_task(server.serve())
-
-        # Wait for shutdown signal
-        await shutdown_event.wait()
-
-        # Graceful shutdown
-        server.should_exit = True
         try:
-            await asyncio.wait_for(server_task, timeout=5.0)
-        except TimeoutError:
-            server_task.cancel()
+            # Run server until shutdown is requested
+            server_task = asyncio.create_task(server.serve())
+
+            # Wait for shutdown signal
+            await shutdown_event.wait()
+
+            # Graceful shutdown
+            server.should_exit = True
+            try:
+                await asyncio.wait_for(server_task, timeout=5.0)
+            except TimeoutError:
+                server_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await server_task
+        except asyncio.CancelledError:
+            # Handle task cancellation during shutdown
+            server.should_exit = True
+            raise
 
     task = asyncio.create_task(run_server())
     return task, shutdown_event
