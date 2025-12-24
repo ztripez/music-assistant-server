@@ -1593,17 +1593,22 @@ async def start_mcp_server(
             # Wait for shutdown signal
             await shutdown_event.wait()
 
-            # Graceful shutdown
+            # Graceful shutdown - give connections 2 seconds to close
             server.should_exit = True
             try:
-                await asyncio.wait_for(server_task, timeout=5.0)
+                await asyncio.wait_for(server_task, timeout=2.0)
             except TimeoutError:
-                server_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await server_task
+                # Force exit if connections don't close in time
+                server.force_exit = True
+                try:
+                    await asyncio.wait_for(server_task, timeout=1.0)
+                except TimeoutError:
+                    server_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await server_task
         except asyncio.CancelledError:
             # Handle task cancellation during shutdown
-            server.should_exit = True
+            server.force_exit = True
             raise
 
     task = asyncio.create_task(run_server())
