@@ -1577,14 +1577,27 @@ async def start_mcp_server(
             expose_headers=["*"],
         )
 
+        # Map MA log level to uvicorn log level
+        ma_log_level = logger.getEffectiveLevel()
+        uvicorn_log_level = logging.getLevelName(ma_log_level).lower()
+
         config = uvicorn.Config(
             app=app,
             host="0.0.0.0",
             port=port,
-            log_level="info",
-            access_log=True,
+            log_level=uvicorn_log_level,
+            access_log=ma_log_level <= logging.DEBUG,  # Only show access log in debug
+            log_config=None,  # Disable uvicorn's default logging config
         )
         server = uvicorn.Server(config)
+
+        # Replace uvicorn's loggers with MA logger
+        logging.getLogger("uvicorn").handlers = logger.handlers
+        logging.getLogger("uvicorn").setLevel(ma_log_level)
+        logging.getLogger("uvicorn.error").handlers = logger.handlers
+        logging.getLogger("uvicorn.error").setLevel(ma_log_level)
+        logging.getLogger("uvicorn.access").handlers = logger.handlers
+        logging.getLogger("uvicorn.access").setLevel(ma_log_level)
 
         try:
             # Run server until shutdown is requested
