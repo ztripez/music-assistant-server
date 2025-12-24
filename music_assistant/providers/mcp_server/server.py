@@ -80,6 +80,7 @@ def create_mcp_server(
         _register_volume_tools(mcp)
     if features.get("library_tools", True):
         _register_library_tools(mcp)
+        _register_podcast_tools(mcp)
     if features.get("playlist_tools", True):
         _register_playlist_tools(mcp)
     if features.get("player_tools", True):
@@ -1057,6 +1058,112 @@ def _register_playlist_tools(mcp: FastMCP) -> None:
 
 
 # =============================================================================
+# PODCAST TOOLS
+# =============================================================================
+
+
+def _register_podcast_tools(mcp: FastMCP) -> None:
+    """Register podcast management tools."""
+
+    @mcp.tool()
+    async def get_library_podcasts(search: str = "", limit: int = 50) -> str:
+        """Get podcasts from the library.
+
+        :param search: Optional search filter.
+        :param limit: Maximum number of podcasts.
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            podcasts = await mass.music.podcasts.library_items(
+                search=search or None,
+                limit=limit,
+            )
+            output = [
+                {
+                    "name": p.name,
+                    "uri": p.uri,
+                    "publisher": getattr(p, "publisher", None),
+                    "total_episodes": getattr(p, "total_episodes", None),
+                }
+                for p in podcasts
+            ]
+            return json.dumps({"podcasts": output}, indent=2)
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def get_podcast_episodes(podcast_uri: str, limit: int = 50) -> str:
+        """Get episodes for a podcast.
+
+        :param podcast_uri: The URI of the podcast.
+        :param limit: Maximum number of episodes.
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            from music_assistant.helpers.uri import parse_uri  # noqa: PLC0415
+
+            _, provider, item_id = await parse_uri(podcast_uri)
+            podcast = await mass.music.get_item_by_uri(podcast_uri)
+            if not podcast:
+                return f"Error: Podcast not found: {podcast_uri}"
+
+            episodes = []
+            async for episode in mass.music.podcasts.episodes(item_id, provider):
+                episodes.append(
+                    {
+                        "name": episode.name,
+                        "uri": episode.uri,
+                        "duration": episode.duration,
+                        "position": getattr(episode, "position", None),
+                        "resume_position_ms": getattr(episode, "resume_position_ms", None),
+                        "fully_played": getattr(episode, "fully_played", None),
+                    }
+                )
+                if len(episodes) >= limit:
+                    break
+
+            return json.dumps(
+                {"podcast": podcast.name, "episodes": episodes},
+                indent=2,
+            )
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def play_podcast_episode(
+        player_id: str,
+        episode_uri: str,
+        resume: bool = True,
+    ) -> str:
+        """Play a podcast episode on a player.
+
+        :param player_id: Player ID from players:// resource.
+        :param episode_uri: The URI of the podcast episode to play.
+        :param resume: Resume from last position if available.
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            from music_assistant_models.enums import QueueOption  # noqa: PLC0415
+
+            await mass.player_queues.play_media(
+                queue_id=player_id,
+                media=episode_uri,
+                option=QueueOption.PLAY,
+                radio_mode=False,
+            )
+            resume_note = " (resuming from last position)" if resume else ""
+            return f"Playing podcast episode on {player_id}{resume_note}"
+        except Exception as e:
+            return f"Error: {e}"
+
+
+# =============================================================================
 # PLAYER MANAGEMENT TOOLS
 # =============================================================================
 
@@ -1532,6 +1639,17 @@ def _register_prompts(mcp: FastMCP) -> None:  # noqa: PLR0915
 
 # =============================================================================
 # SERVER STARTUP
+# =============================================================================
+#
+# Config Changes and Client Notifications
+# ----------------------------------------
+# The MCP server uses stateless HTTP mode for simplicity.
+# When config toggles change, the provider reloads and restarts the server.
+# Clients detect disconnection, reconnect, and receive updated capabilities.
+#
+# Note: Stateful connections (for real-time notifications like now-playing
+# updates) would make sense for a music app, but are out of scope for this
+# iteration. The current stateless approach prioritizes reliability.
 # =============================================================================
 
 

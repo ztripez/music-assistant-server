@@ -132,6 +132,45 @@ def mock_playlist() -> Mock:
 
 
 @pytest.fixture
+def mock_podcast() -> Mock:
+    """Create a mock podcast."""
+    podcast = Mock(spec=["name", "uri", "item_id", "provider", "publisher", "total_episodes"])
+    podcast.name = "Test Podcast"
+    podcast.uri = "library://podcast/201"
+    podcast.item_id = "201"
+    podcast.provider = "library"
+    podcast.publisher = "Test Publisher"
+    podcast.total_episodes = 50
+    return podcast
+
+
+@pytest.fixture
+def mock_podcast_episode() -> Mock:
+    """Create a mock podcast episode."""
+    episode = Mock(
+        spec=[
+            "name",
+            "uri",
+            "item_id",
+            "provider",
+            "duration",
+            "position",
+            "resume_position_ms",
+            "fully_played",
+        ]
+    )
+    episode.name = "Episode 1: Introduction"
+    episode.uri = "library://podcast_episode/301"
+    episode.item_id = "301"
+    episode.provider = "library"
+    episode.duration = 3600
+    episode.position = 1
+    episode.resume_position_ms = 120000
+    episode.fully_played = False
+    return episode
+
+
+@pytest.fixture
 def mock_search_results(mock_track: Mock, mock_artist: Mock, mock_album: Mock) -> Mock:
     """Create mock search results."""
     results = Mock()
@@ -155,7 +194,7 @@ def mock_provider() -> Mock:
 
 
 @pytest.fixture
-def mock_mass(  # noqa: PLR0915
+def mock_mass(  # noqa: PLR0913, PLR0915
     mock_player: Mock,
     mock_player_2: Mock,
     mock_queue: Mock,
@@ -164,6 +203,8 @@ def mock_mass(  # noqa: PLR0915
     mock_artist: Mock,
     mock_album: Mock,
     mock_playlist: Mock,
+    mock_podcast: Mock,
+    mock_podcast_episode: Mock,
     mock_search_results: Mock,
     mock_provider: Mock,
 ) -> Mock:
@@ -239,6 +280,14 @@ def mock_mass(  # noqa: PLR0915
         yield mock_track
 
     mass.music.playlists.tracks = mock_playlist_tracks
+
+    # Podcasts controller
+    mass.music.podcasts.library_items = AsyncMock(return_value=[mock_podcast])
+
+    async def mock_podcast_episodes(*_args: Any, **_kwargs: Any) -> Any:
+        yield mock_podcast_episode
+
+    mass.music.podcasts.episodes = mock_podcast_episodes
 
     return mass
 

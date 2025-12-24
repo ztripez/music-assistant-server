@@ -757,6 +757,71 @@ async def test_remove_from_playlist(mock_mass: Mock) -> None:
 
 
 # =============================================================================
+# PODCAST TOOLS
+# =============================================================================
+
+
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_get_library_podcasts(mock_mass: Mock) -> None:
+    """Test get_library_podcasts tool."""
+    from music_assistant.providers.mcp_server.server import (  # noqa: PLC0415
+        _register_podcast_tools,
+    )
+
+    mcp = FastMCP("test")
+    _register_podcast_tools(mcp)
+
+    podcast_tool = _get_tool(mcp, "get_library_podcasts")
+    assert podcast_tool is not None
+    result = await podcast_tool.fn()
+    data = json.loads(result)
+    assert "podcasts" in data
+    assert len(data["podcasts"]) == 1
+    assert data["podcasts"][0]["name"] == "Test Podcast"
+    mock_mass.music.podcasts.library_items.assert_called_once()
+
+
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_get_podcast_episodes(mock_mass: Mock) -> None:  # noqa: ARG001
+    """Test get_podcast_episodes tool."""
+    from music_assistant.providers.mcp_server.server import (  # noqa: PLC0415
+        _register_podcast_tools,
+    )
+
+    mcp = FastMCP("test")
+    _register_podcast_tools(mcp)
+
+    episodes_tool = _get_tool(mcp, "get_podcast_episodes")
+    assert episodes_tool is not None
+    result = await episodes_tool.fn(podcast_uri="library://podcast/201")
+    data = json.loads(result)
+    assert "episodes" in data
+    assert "podcast" in data
+    assert len(data["episodes"]) == 1
+    assert data["episodes"][0]["name"] == "Episode 1: Introduction"
+
+
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_play_podcast_episode(mock_mass: Mock) -> None:
+    """Test play_podcast_episode tool."""
+    from music_assistant.providers.mcp_server.server import (  # noqa: PLC0415
+        _register_podcast_tools,
+    )
+
+    mcp = FastMCP("test")
+    _register_podcast_tools(mcp)
+
+    play_tool = _get_tool(mcp, "play_podcast_episode")
+    assert play_tool is not None
+    result = await play_tool.fn(
+        player_id="player_1",
+        episode_uri="library://podcast_episode/301",
+    )
+    assert "playing" in result.lower()
+    mock_mass.player_queues.play_media.assert_called_once()
+
+
+# =============================================================================
 # ERROR HANDLING
 # =============================================================================
 
