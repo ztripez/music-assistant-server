@@ -37,7 +37,6 @@ def create_mcp_server(
     if enabled_features is not None:
         _state["enabled_features"] = enabled_features
 
-    # Build server kwargs
     server_kwargs: dict[str, Any] = {
         "name": "Music Assistant",
         "instructions": (
@@ -48,18 +47,14 @@ def create_mcp_server(
         "json_response": True,
     }
 
-    # Add authentication if required
     if require_auth:
         from .auth import MusicAssistantTokenVerifier  # noqa: PLC0415
 
         server_kwargs["token_verifier"] = MusicAssistantTokenVerifier(mass)
 
     mcp = FastMCP(**server_kwargs)
-
-    # Get feature flags with defaults
     features = enabled_features or {}
 
-    # Register tools, resources, and prompts based on enabled features
     if features.get("playback_tools", True):
         _register_playback_tools(mcp)
     if features.get("queue_tools", True):
@@ -117,7 +112,7 @@ def _register_playback_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
     async def pause(player_id: str) -> str:
         """Pause playback on a player.
 
-        :param player_id: The ID of the player/queue to control.
+        :param player_id: Player ID.
         """
         mass = _get_mass()
         if mass is None:
@@ -132,7 +127,7 @@ def _register_playback_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
     async def stop(player_id: str) -> str:
         """Stop playback on a player and clear the queue.
 
-        :param player_id: The ID of the player/queue to control.
+        :param player_id: Player ID.
         """
         mass = _get_mass()
         if mass is None:
@@ -147,7 +142,7 @@ def _register_playback_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
     async def next_track(player_id: str) -> str:
         """Skip to the next track on a player.
 
-        :param player_id: The ID of the player/queue to control.
+        :param player_id: Player ID.
         """
         mass = _get_mass()
         if mass is None:
@@ -162,7 +157,7 @@ def _register_playback_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
     async def previous_track(player_id: str) -> str:
         """Go to the previous track on a player.
 
-        :param player_id: The ID of the player/queue to control.
+        :param player_id: Player ID.
         """
         mass = _get_mass()
         if mass is None:
@@ -177,7 +172,7 @@ def _register_playback_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
     async def seek(player_id: str, position: int) -> str:
         """Seek to a specific position in the current track.
 
-        :param player_id: The ID of the player/queue to control.
+        :param player_id: Player ID.
         :param position: Position in seconds to seek to.
         """
         mass = _get_mass()
@@ -193,8 +188,8 @@ def _register_playback_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
     async def skip_forward(player_id: str, seconds: int = 30) -> str:
         """Skip forward by a number of seconds.
 
-        :param player_id: The ID of the player/queue to control.
-        :param seconds: Number of seconds to skip forward (default 30).
+        :param player_id: Player ID.
+        :param seconds: Number of seconds to skip forward.
         """
         mass = _get_mass()
         if mass is None:
@@ -209,8 +204,8 @@ def _register_playback_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
     async def skip_backward(player_id: str, seconds: int = 30) -> str:
         """Skip backward by a number of seconds.
 
-        :param player_id: The ID of the player/queue to control.
-        :param seconds: Number of seconds to skip backward (default 30).
+        :param player_id: Player ID.
+        :param seconds: Number of seconds to skip backward.
         """
         mass = _get_mass()
         if mass is None:
@@ -230,14 +225,10 @@ def _register_playback_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
     ) -> str:
         """Play a media item by URI on a player.
 
-        Use search_music first to find content and get URIs.
-        Get player_id from the players:// resource.
-
-        :param player_id: The ID of the player (from players:// resource).
-        :param uri: Media URI from search_music results (e.g., spotify://track/abc).
-        :param enqueue_mode: How to add: play (now), next (after current),
-            add (to end), replace (clear queue).
-        :param radio_mode: If true, create endless radio based on this item.
+        :param player_id: Player ID.
+        :param uri: Media URI (e.g., spotify://track/abc).
+        :param enqueue_mode: play, next, add, or replace.
+        :param radio_mode: Create endless radio based on this item.
         """
         mass = _get_mass()
         if mass is None:
@@ -270,14 +261,12 @@ def _register_playback_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
         limit: int = 10,
         library_only: bool = False,
     ) -> str:
-        """Search for music across library and streaming providers.
+        """Search for music. Returns items with URIs for play_media.
 
-        Returns results with URIs. Use these URIs with play_media to play content.
-
-        :param query: Search query (artist name, song title, album, etc.).
+        :param query: Search query.
         :param media_types: Comma-separated: track, artist, album, playlist, radio.
-        :param limit: Max results per type (default 10).
-        :param library_only: Only search local library, not streaming providers.
+        :param limit: Max results per type.
+        :param library_only: Only search library, not streaming providers.
         """
         mass = _get_mass()
         if mass is None:
@@ -337,8 +326,8 @@ def _register_queue_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
     async def get_queue(player_id: str, limit: int = 50) -> str:
         """Get items in a player's queue.
 
-        :param player_id: The ID of the player/queue.
-        :param limit: Maximum number of items to return (default 50).
+        :param player_id: Player ID.
+        :param limit: Maximum number of items to return.
         """
         mass = _get_mass()
         if mass is None:
@@ -371,7 +360,7 @@ def _register_queue_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
     async def clear_queue(player_id: str) -> str:
         """Clear all items from a player's queue.
 
-        :param player_id: The ID of the player/queue.
+        :param player_id: Player ID.
         """
         mass = _get_mass()
         if mass is None:
@@ -384,10 +373,10 @@ def _register_queue_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
 
     @mcp.tool()
     async def shuffle_queue(player_id: str, enabled: bool) -> str:
-        """Enable or disable shuffle mode on a player's queue.
+        """Set shuffle mode.
 
-        :param player_id: The ID of the player/queue.
-        :param enabled: True to enable shuffle, False to disable.
+        :param player_id: Player ID.
+        :param enabled: Enable shuffle.
         """
         mass = _get_mass()
         if mass is None:
@@ -401,10 +390,10 @@ def _register_queue_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
 
     @mcp.tool()
     async def repeat_queue(player_id: str, mode: str) -> str:
-        """Set repeat mode on a player's queue.
+        """Set repeat mode.
 
-        :param player_id: The ID of the player/queue.
-        :param mode: Repeat mode: 'off', 'one' (repeat track), 'all' (repeat queue).
+        :param player_id: Player ID.
+        :param mode: off, one, or all.
         """
         mass = _get_mass()
         if mass is None:
@@ -431,7 +420,7 @@ def _register_queue_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
     ) -> str:
         """Move an item in the queue by a relative position.
 
-        :param player_id: The ID of the player/queue.
+        :param player_id: Player ID.
         :param item_id: The queue item ID to move.
         :param position_shift: Number of positions to move (+/- for up/down).
         """
@@ -449,7 +438,7 @@ def _register_queue_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
     async def remove_queue_item(player_id: str, item_id: str) -> str:
         """Remove an item from the queue.
 
-        :param player_id: The ID of the player/queue.
+        :param player_id: Player ID.
         :param item_id: The queue item ID or index to remove.
         """
         mass = _get_mass()
@@ -465,7 +454,7 @@ def _register_queue_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
     async def play_queue_index(player_id: str, index: int) -> str:
         """Play a specific item in the queue by index.
 
-        :param player_id: The ID of the player/queue.
+        :param player_id: Player ID.
         :param index: The index of the item to play (0-based).
         """
         mass = _get_mass()
@@ -509,7 +498,7 @@ def _register_volume_tools(mcp: FastMCP) -> None:
     async def set_volume(player_id: str, volume: int) -> str:
         """Set the volume level of a player.
 
-        :param player_id: The ID of the player to control.
+        :param player_id: Player ID.
         :param volume: Volume level from 0 to 100.
         """
         mass = _get_mass()
@@ -526,7 +515,7 @@ def _register_volume_tools(mcp: FastMCP) -> None:
     async def volume_up(player_id: str) -> str:
         """Increase the volume of a player by one step.
 
-        :param player_id: The ID of the player to control.
+        :param player_id: Player ID.
         """
         mass = _get_mass()
         if mass is None:
@@ -541,7 +530,7 @@ def _register_volume_tools(mcp: FastMCP) -> None:
     async def volume_down(player_id: str) -> str:
         """Decrease the volume of a player by one step.
 
-        :param player_id: The ID of the player to control.
+        :param player_id: Player ID.
         """
         mass = _get_mass()
         if mass is None:
@@ -556,8 +545,8 @@ def _register_volume_tools(mcp: FastMCP) -> None:
     async def mute(player_id: str, muted: bool) -> str:
         """Mute or unmute a player.
 
-        :param player_id: The ID of the player to control.
-        :param muted: True to mute, False to unmute.
+        :param player_id: Player ID.
+        :param muted: Mute player.
         """
         mass = _get_mass()
         if mass is None:
@@ -573,7 +562,7 @@ def _register_volume_tools(mcp: FastMCP) -> None:
     async def set_group_volume(player_id: str, volume: int) -> str:
         """Set the volume for all players in a group.
 
-        :param player_id: The ID of the group player.
+        :param player_id: Group player ID.
         :param volume: Volume level from 0 to 100.
         """
         mass = _get_mass()
@@ -617,7 +606,7 @@ def _register_library_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
     async def get_recently_played(limit: int = 20) -> str:
         """Get recently played items.
 
-        :param limit: Maximum number of items to return (default 20).
+        :param limit: Maximum number of items to return.
         """
         mass = _get_mass()
         if mass is None:
@@ -636,7 +625,7 @@ def _register_library_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
     async def get_recently_added(limit: int = 20) -> str:
         """Get recently added tracks to the library.
 
-        :param limit: Maximum number of items to return (default 20).
+        :param limit: Maximum number of items to return.
         """
         mass = _get_mass()
         if mass is None:
@@ -653,7 +642,7 @@ def _register_library_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
         """Get tracks similar to a given track.
 
         :param track_uri: The URI of the track to find similar tracks for.
-        :param limit: Maximum number of similar tracks (default 25).
+        :param limit: Maximum number of similar tracks.
         """
         mass = _get_mass()
         if mass is None:
@@ -696,7 +685,7 @@ def _register_library_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
         """Get all tracks by an artist.
 
         :param artist_uri: The URI of the artist.
-        :param limit: Maximum number of tracks (default 50).
+        :param limit: Maximum number of tracks.
         """
         mass = _get_mass()
         if mass is None:
@@ -721,7 +710,7 @@ def _register_library_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
         """Get all albums by an artist.
 
         :param artist_uri: The URI of the artist.
-        :param limit: Maximum number of albums (default 50).
+        :param limit: Maximum number of albums.
         """
         mass = _get_mass()
         if mass is None:
@@ -848,7 +837,7 @@ def _register_library_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
         """Get artists from the library.
 
         :param search: Optional search filter.
-        :param limit: Maximum number of artists (default 50).
+        :param limit: Maximum number of artists.
         :param favorites_only: Only return favorited artists.
         """
         mass = _get_mass()
@@ -874,7 +863,7 @@ def _register_library_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
         """Get albums from the library.
 
         :param search: Optional search filter.
-        :param limit: Maximum number of albums (default 50).
+        :param limit: Maximum number of albums.
         :param favorites_only: Only return favorited albums.
         """
         mass = _get_mass()
@@ -900,7 +889,7 @@ def _register_library_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
         """Get tracks from the library.
 
         :param search: Optional search filter.
-        :param limit: Maximum number of tracks (default 50).
+        :param limit: Maximum number of tracks.
         :param favorites_only: Only return favorited tracks.
         """
         mass = _get_mass()
@@ -931,7 +920,7 @@ def _register_playlist_tools(mcp: FastMCP) -> None:
         """Get playlists from the library.
 
         :param search: Optional search filter.
-        :param limit: Maximum number of playlists (default 50).
+        :param limit: Maximum number of playlists.
         """
         mass = _get_mass()
         if mass is None:
@@ -951,7 +940,7 @@ def _register_playlist_tools(mcp: FastMCP) -> None:
         """Get tracks in a playlist.
 
         :param playlist_uri: The URI of the playlist.
-        :param limit: Maximum number of tracks (default 100).
+        :param limit: Maximum number of tracks.
         """
         mass = _get_mass()
         if mass is None:
@@ -1045,8 +1034,8 @@ def _register_player_tools(mcp: FastMCP) -> None:
     async def power_player(player_id: str, powered: bool) -> str:
         """Power on or off a player.
 
-        :param player_id: The ID of the player.
-        :param powered: True to power on, False to power off.
+        :param player_id: Player ID.
+        :param powered: Power on.
         """
         mass = _get_mass()
         if mass is None:
@@ -1063,10 +1052,10 @@ def _register_player_tools(mcp: FastMCP) -> None:
         target_player_id: str,
         child_player_ids: str,
     ) -> str:
-        """Group multiple players together for synchronized playback.
+        """Group players for synchronized playback.
 
-        :param target_player_id: The ID of the group leader player.
-        :param child_player_ids: Comma-separated IDs of players to add to group.
+        :param target_player_id: Group leader player ID.
+        :param child_player_ids: Comma-separated player IDs to add.
         """
         mass = _get_mass()
         if mass is None:
@@ -1080,9 +1069,9 @@ def _register_player_tools(mcp: FastMCP) -> None:
 
     @mcp.tool()
     async def ungroup_player(player_id: str) -> str:
-        """Remove a player from its current group.
+        """Remove a player from its group.
 
-        :param player_id: The ID of the player to ungroup.
+        :param player_id: Player ID.
         """
         mass = _get_mass()
         if mass is None:
@@ -1101,7 +1090,7 @@ def _register_player_tools(mcp: FastMCP) -> None:
     ) -> str:
         """Play an announcement on a player (TTS or audio URL).
 
-        :param player_id: The ID of the player.
+        :param player_id: Player ID.
         :param url: URL of the audio to play.
         :param volume: Optional volume override (0-100).
         """
@@ -1116,9 +1105,9 @@ def _register_player_tools(mcp: FastMCP) -> None:
 
     @mcp.tool()
     async def get_player_by_name(name: str) -> str:
-        """Find a player by its name (partial match supported).
+        """Find a player by name.
 
-        :param name: The name or partial name of the player.
+        :param name: Full or partial player name.
         """
         mass = _get_mass()
         if mass is None:
@@ -1399,7 +1388,7 @@ def _register_prompts(mcp: FastMCP) -> None:  # noqa: PLR0915
 
     @mcp.prompt()
     async def play_music(query: str = "", player: str = "") -> str:
-        """Help me play music on Music Assistant."""
+        """Request to play music."""
         mass = _get_mass()
         players_info = ""
         if mass:
@@ -1413,7 +1402,7 @@ def _register_prompts(mcp: FastMCP) -> None:  # noqa: PLR0915
 
     @mcp.prompt()
     async def whats_playing(player: str = "") -> str:
-        """Ask what's currently playing."""
+        """Check current playback status."""
         mass = _get_mass()
         if not mass:
             return "What's currently playing?"
@@ -1442,7 +1431,7 @@ def _register_prompts(mcp: FastMCP) -> None:  # noqa: PLR0915
 
     @mcp.prompt()
     async def control_playback(player: str = "", action: str = "") -> str:
-        """Control playback on a player."""
+        """Playback control request."""
         actions = "play, pause, stop, next, previous, volume up, volume down"
         player_part = f" on {player}" if player else ""
         action_part = action if action else f"[{actions}]"
@@ -1450,7 +1439,7 @@ def _register_prompts(mcp: FastMCP) -> None:  # noqa: PLR0915
 
     @mcp.prompt()
     async def discover_music(mood: str = "", genre: str = "") -> str:
-        """Discover new music based on mood or genre."""
+        """Music discovery and recommendations."""
         parts = []
         if mood:
             parts.append(mood)
@@ -1463,13 +1452,13 @@ def _register_prompts(mcp: FastMCP) -> None:  # noqa: PLR0915
 
     @mcp.prompt()
     async def manage_queue(player: str = "") -> str:
-        """Manage the playback queue."""
+        """Queue management request."""
         player_part = f" on {player}" if player else ""
         return f"Help me manage the music queue{player_part}. Show me what's queued up."
 
     @mcp.prompt()
     async def setup_multiroom(rooms: str = "") -> str:
-        """Set up multi-room audio."""
+        """Multi-room audio setup."""
         mass = _get_mass()
         players_info = ""
         if mass:
@@ -1482,7 +1471,7 @@ def _register_prompts(mcp: FastMCP) -> None:  # noqa: PLR0915
 
     @mcp.prompt()
     async def transfer_playback(from_player: str = "", to_player: str = "") -> str:
-        """Transfer playback from one player to another."""
+        """Move playback between players."""
         mass = _get_mass()
         players_info = ""
         if mass:
