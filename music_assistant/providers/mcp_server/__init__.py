@@ -85,41 +85,29 @@ async def get_config_entries(
         host = "localhost"
     mcp_url = f"http://{host}:{port}/"
 
-    # Build connection info text
+    # Build connection info text (plain text, no markdown)
     connection_info = (
-        f"**MCP Server Endpoint:** `{mcp_url}`\n\n"
-        "**Authentication:** When authentication is enabled, include a bearer token "
-        "in your requests:\n"
-        "```\n"
-        "Authorization: Bearer <your-token>\n"
-        "```\n\n"
-        "**To create a token:**\n"
-        f"1. Open the Music Assistant UI at `{mass.webserver.base_url}`\n"
-        "2. Go to Settings → Security\n"
-        "3. Create a new API token\n"
-        "4. Copy the token and use it in your MCP client configuration"
+        f"MCP Server Endpoint: {mcp_url} - "
+        "When authentication is enabled, include a bearer token in your requests. "
+        f"Create tokens in Settings > Security at {mass.webserver.base_url}"
     )
 
     return (
-        # Connection info alert
+        # Connection info
         ConfigEntry(
             key="connection_info",
-            type=ConfigEntryType.ALERT,
+            type=ConfigEntryType.LABEL,
             label=connection_info,
             required=False,
         ),
-        # Server settings divider
-        ConfigEntry(
-            key="server_settings_divider",
-            type=ConfigEntryType.DIVIDER,
-            label="Server Settings",
-        ),
+        # Server settings
         ConfigEntry(
             key=CONF_PORT,
             type=ConfigEntryType.INTEGER,
             label="Port",
             description="Port number for the MCP server (1024-65535).",
             default_value=DEFAULT_PORT,
+            category="Server",
         ),
         ConfigEntry(
             key=CONF_REQUIRE_AUTH,
@@ -130,14 +118,9 @@ async def get_config_entries(
                 "When enabled, clients must provide a valid MA token."
             ),
             default_value=True,
+            category="Server",
         ),
-        # Query permissions divider
-        ConfigEntry(
-            key="query_divider",
-            type=ConfigEntryType.DIVIDER,
-            label="Query Permissions (Read-Only)",
-            description="Allow AI assistants to query and browse data.",
-        ),
+        # Query permissions
         ConfigEntry(
             key=CONF_LIBRARY_QUERY,
             type=ConfigEntryType.BOOLEAN,
@@ -147,7 +130,7 @@ async def get_config_entries(
                 "recently played, similar tracks, artist/album details."
             ),
             default_value=True,
-            category="query",
+            category="Query Permissions",
         ),
         ConfigEntry(
             key=CONF_PLAYER_QUERY,
@@ -155,7 +138,7 @@ async def get_config_entries(
             label="Player Query",
             description="Find players by name, get player capabilities.",
             default_value=True,
-            category="query",
+            category="Query Permissions",
         ),
         ConfigEntry(
             key=CONF_QUEUE_QUERY,
@@ -163,7 +146,7 @@ async def get_config_entries(
             label="Queue Query",
             description="Get current queue items and state.",
             default_value=True,
-            category="query",
+            category="Query Permissions",
         ),
         ConfigEntry(
             key=CONF_PLAYLIST_QUERY,
@@ -171,22 +154,16 @@ async def get_config_entries(
             label="Playlist Query",
             description="List playlists and get playlist tracks.",
             default_value=True,
-            category="query",
+            category="Query Permissions",
         ),
-        # Control permissions divider
-        ConfigEntry(
-            key="control_divider",
-            type=ConfigEntryType.DIVIDER,
-            label="Control Permissions",
-            description="Allow AI assistants to control playback and players.",
-        ),
+        # Control permissions
         ConfigEntry(
             key=CONF_PLAYBACK_CONTROL,
             type=ConfigEntryType.BOOLEAN,
             label="Playback Control",
             description="Play, pause, stop, seek, skip, next/previous track, play media.",
             default_value=True,
-            category="control",
+            category="Control Permissions",
         ),
         ConfigEntry(
             key=CONF_VOLUME_CONTROL,
@@ -194,7 +171,7 @@ async def get_config_entries(
             label="Volume Control",
             description="Set volume, volume up/down, mute, group volume.",
             default_value=True,
-            category="control",
+            category="Control Permissions",
         ),
         ConfigEntry(
             key=CONF_PLAYER_CONTROL,
@@ -202,7 +179,7 @@ async def get_config_entries(
             label="Player Control",
             description="Power on/off, group/ungroup players, play announcements.",
             default_value=True,
-            category="control",
+            category="Control Permissions",
         ),
         ConfigEntry(
             key=CONF_QUEUE_CONTROL,
@@ -210,22 +187,16 @@ async def get_config_entries(
             label="Queue Control",
             description="Shuffle, repeat mode, transfer queue, play specific index.",
             default_value=True,
-            category="control",
+            category="Control Permissions",
         ),
-        # Edit permissions divider
-        ConfigEntry(
-            key="edit_divider",
-            type=ConfigEntryType.DIVIDER,
-            label="Edit Permissions",
-            description="Allow AI assistants to modify library and playlists.",
-        ),
+        # Edit permissions
         ConfigEntry(
             key=CONF_LIBRARY_EDIT,
             type=ConfigEntryType.BOOLEAN,
             label="Library Edit",
             description="Add items to library, mark as favorite.",
             default_value=True,
-            category="edit",
+            category="Edit Permissions",
         ),
         ConfigEntry(
             key=CONF_PLAYLIST_EDIT,
@@ -233,7 +204,7 @@ async def get_config_entries(
             label="Playlist Edit",
             description="Create playlists, add tracks to playlists.",
             default_value=True,
-            category="edit",
+            category="Edit Permissions",
         ),
         ConfigEntry(
             key=CONF_QUEUE_EDIT,
@@ -241,22 +212,16 @@ async def get_config_entries(
             label="Queue Edit",
             description="Move items in the queue.",
             default_value=True,
-            category="edit",
+            category="Edit Permissions",
         ),
-        # Delete permissions divider
-        ConfigEntry(
-            key="delete_divider",
-            type=ConfigEntryType.DIVIDER,
-            label="Delete Permissions",
-            description="Allow AI assistants to delete items. Disabled by default for safety.",
-        ),
+        # Delete permissions
         ConfigEntry(
             key=CONF_LIBRARY_DELETE,
             type=ConfigEntryType.BOOLEAN,
             label="Library Delete",
             description="Remove items from library, remove from favorites.",
             default_value=False,
-            category="delete",
+            category="Delete Permissions",
         ),
         ConfigEntry(
             key=CONF_PLAYLIST_DELETE,
@@ -264,7 +229,7 @@ async def get_config_entries(
             label="Playlist Delete",
             description="Delete playlists, remove tracks, clear playlists.",
             default_value=False,
-            category="delete",
+            category="Delete Permissions",
         ),
         ConfigEntry(
             key=CONF_QUEUE_DELETE,
@@ -272,22 +237,16 @@ async def get_config_entries(
             label="Queue Delete",
             description="Remove queue items, clear queue.",
             default_value=True,
-            category="delete",
+            category="Delete Permissions",
         ),
-        # Resources divider
-        ConfigEntry(
-            key="resources_divider",
-            type=ConfigEntryType.DIVIDER,
-            label="MCP Resources & Prompts",
-            description="Expose data resources and prompts for AI context.",
-        ),
+        # Resources
         ConfigEntry(
             key=CONF_PLAYER_RESOURCES,
             type=ConfigEntryType.BOOLEAN,
             label="Player Resources",
             description="Expose player resources (list, details, now playing, queue).",
             default_value=True,
-            category="resources",
+            category="MCP Resources",
         ),
         ConfigEntry(
             key=CONF_LIBRARY_RESOURCES,
@@ -295,7 +254,7 @@ async def get_config_entries(
             label="Library Resources",
             description="Expose library resources (stats, favorites, recently played).",
             default_value=True,
-            category="resources",
+            category="MCP Resources",
         ),
         ConfigEntry(
             key=CONF_PROMPTS,
@@ -303,7 +262,7 @@ async def get_config_entries(
             label="Prompts",
             description="Expose MCP prompts for AI assistant context.",
             default_value=True,
-            category="resources",
+            category="MCP Resources",
         ),
     )
 
