@@ -218,7 +218,7 @@ class AudioStreamer:
             queue_item_id=queue_item_id,
         )
         self._sessions[queue_item_id] = session
-        self.logger.debug("Started stream session %s for track %s", session_id, track_id)
+        self.logger.info("Started stream session %s for track %s", session_id, track_id)
         return session
 
     async def _send_frames(self, session: StreamSession) -> bool:
@@ -231,7 +231,7 @@ class AudioStreamer:
         if not self._http_session or not session.buffer:
             return True
 
-        # Extract buffer contents atomically
+        # Extract buffer contents atomically (but keep a copy in case of 404)
         async with self._send_lock:
             data = bytes(session.buffer)
             session.buffer.clear()
@@ -247,9 +247,10 @@ class AudioStreamer:
                     session.bytes_sent += len(data)
                     return True
                 if resp.status == 404:
-                    # Session doesn't exist on sidecar anymore
-                    self.logger.debug(
-                        "Stream session %s no longer exists on sidecar",
+                    # Session doesn't exist on sidecar anymore (sidecar restarted?)
+                    # Log at info level since this triggers reconnection
+                    self.logger.info(
+                        "Stream session %s lost (sidecar restarted?), will reconnect on next frame",
                         session.session_id,
                     )
                     return False

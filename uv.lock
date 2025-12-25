@@ -1228,9 +1228,6 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-music-insights = [
-    { name = "msgpack" },
-]
 test = [
     { name = "codespell" },
     { name = "mypy" },
@@ -1267,7 +1264,6 @@ requires-dist = [
     { name = "ifaddr", specifier = "==0.2.0" },
     { name = "librosa", specifier = "==0.11.0" },
     { name = "mashumaro", specifier = "==3.17" },
-    { name = "msgpack", marker = "extra == 'music-insights'", specifier = ">=1.0.0" },
     { name = "music-assistant-frontend", specifier = "==2.17.56" },
     { name = "music-assistant-models", specifier = "==1.1.86" },
     { name = "mutagen", specifier = "==1.47.0" },
@@ -1292,7 +1288,7 @@ requires-dist = [
     { name = "xmltodict", specifier = "==1.0.2" },
     { name = "zeroconf", specifier = "==0.148.0" },
 ]
-provides-extras = ["test", "music-insights"]
+provides-extras = ["test"]
 
 [[package]]
 name = "music-assistant-frontend"
