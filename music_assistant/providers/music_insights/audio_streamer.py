@@ -135,10 +135,14 @@ class AudioStreamer:
         session.buffer.extend(chunk)
 
         # Send when buffer is large enough to reduce HTTP overhead
+        # Align to 8 bytes (f32 stereo = 4 bytes * 2 channels)
         if len(session.buffer) >= self.min_buffer_bytes:
-            if not await self._send_frames(session):
-                # Session no longer exists on sidecar, remove from local tracking
-                self._sessions.pop(queue_item_id, None)
+            # Ensure we send aligned data (keep remainder in buffer)
+            aligned_size = (len(session.buffer) // 8) * 8
+            if aligned_size > 0:
+                if not await self._send_frames(session, aligned_size):
+                    # Session no longer exists on sidecar, remove from local tracking
+                    self._sessions.pop(queue_item_id, None)
 
     async def _start_session(
         self,
@@ -221,20 +225,25 @@ class AudioStreamer:
         self.logger.info("Started stream session %s for track %s", session_id, track_id)
         return session
 
-    async def _send_frames(self, session: StreamSession) -> bool:
+    async def _send_frames(self, session: StreamSession, size: int | None = None) -> bool:
         """
         Send buffered PCM frames to the sidecar.
 
         :param session: The streaming session.
+        :param size: Number of bytes to send (None = all). Must be aligned to sample size.
         :return: True if successful, False if session is invalid/gone.
         """
         if not self._http_session or not session.buffer:
             return True
 
-        # Extract buffer contents atomically (but keep a copy in case of 404)
+        # Extract buffer contents atomically
         async with self._send_lock:
-            data = bytes(session.buffer)
-            session.buffer.clear()
+            if size is None or size >= len(session.buffer):
+                data = bytes(session.buffer)
+                session.buffer.clear()
+            else:
+                data = bytes(session.buffer[:size])
+                del session.buffer[:size]
 
         try:
             url = f"{self.sidecar_url}/api/v1/stream/{session.session_id}/frames"
@@ -254,10 +263,13 @@ class AudioStreamer:
                         session.session_id,
                     )
                     return False
-                self.logger.debug(
-                    "Failed to send frames for session %s: %s",
+                # Log error details for non-success responses
+                body = await _get_error_body(resp)
+                self.logger.warning(
+                    "Failed to send frames for session %s: %s - %s",
                     session.session_id,
                     resp.status,
+                    body,
                 )
                 return True  # Non-404 errors are transient, keep trying
         except aiohttp.ClientError as err:
