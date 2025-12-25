@@ -33,15 +33,21 @@ def create_mcp_server(
     mass: MusicAssistant,
     require_auth: bool = True,
     enabled_features: dict[str, bool] | None = None,
+    logger: logging.Logger | None = None,
 ) -> FastMCP:
     """Create and configure the MCP server instance.
 
     :param mass: MusicAssistant instance.
     :param require_auth: Whether to require authentication.
     :param enabled_features: Dictionary of feature flags to enable/disable tool categories.
+    :param logger: Logger instance for debug output.
     :return: Configured FastMCP server instance.
     """
     from mcp.server.transport_security import TransportSecuritySettings  # noqa: PLC0415
+
+    log = logger or LOGGER
+
+    log.debug("Creating MCP server instance (require_auth=%s)", require_auth)
 
     server_kwargs: dict[str, Any] = {
         "name": "Music Assistant",
@@ -68,6 +74,7 @@ def create_mcp_server(
             resource_server_url=None,
         )
         server_kwargs["token_verifier"] = MusicAssistantTokenVerifier(mass)
+        log.debug("Auth configured with issuer_url=%s", base_url)
 
     mcp = FastMCP(**server_kwargs)
     features = enabled_features or {}
@@ -75,31 +82,41 @@ def create_mcp_server(
     # Register tools
     if features.get("playback_tools", True):
         register_playback_tools(mcp, mass)
+        log.debug("Registered playback tools")
     if features.get("queue_tools", True):
         register_queue_tools(mcp, mass)
+        log.debug("Registered queue tools")
     if features.get("volume_tools", True):
         register_volume_tools(mcp, mass)
+        log.debug("Registered volume tools")
     if features.get("library_tools", True):
         register_library_tools(mcp, mass)
         register_podcast_tools(mcp, mass)
         register_radio_tools(mcp, mass)
         register_audiobook_tools(mcp, mass)
         register_metadata_tools(mcp, mass)
+        log.debug("Registered library/podcast/radio/audiobook/metadata tools")
     if features.get("playlist_tools", True):
         register_playlist_tools(mcp, mass)
+        log.debug("Registered playlist tools")
     if features.get("player_tools", True):
         register_player_tools(mcp, mass)
+        log.debug("Registered player tools")
 
     # Register resources
     if features.get("player_resources", True):
         register_player_resources(mcp, mass)
+        log.debug("Registered player resources")
     if features.get("library_resources", True):
         register_library_resources(mcp, mass)
+        log.debug("Registered library resources")
 
     # Register prompts
     if features.get("prompts", True):
         register_prompts(mcp, mass)
+        log.debug("Registered prompts")
 
+    log.debug("MCP server instance created")
     return mcp
 
 
@@ -117,12 +134,22 @@ class MCPServer:
         """Initialize the MCP server wrapper."""
         import uvicorn  # noqa: PLC0415
 
-        mcp = create_mcp_server(mass, require_auth, enabled_features)
+        self._logger = logger
+
+        self._logger.debug("Initializing MCP server on port %d", port)
+
+        mcp = create_mcp_server(mass, require_auth, enabled_features, logger)
         mcp.settings.streamable_http_path = "/"
 
         # Map MA log level to uvicorn log level
         ma_log_level = logger.getEffectiveLevel()
         uvicorn_log_level = logging.getLevelName(ma_log_level).lower()
+
+        self._logger.debug(
+            "Configuring uvicorn (log_level=%s, access_log=%s)",
+            uvicorn_log_level,
+            ma_log_level <= logging.DEBUG,
+        )
 
         config = uvicorn.Config(
             app=mcp.streamable_http_app(),
@@ -134,53 +161,68 @@ class MCPServer:
         )
         self._server = uvicorn.Server(config)
         self._serve_task: asyncio.Task[None] | None = None
-        self._logger = logger
 
     async def start(self) -> None:
         """Start the server."""
+        self._logger.debug("Starting MCP server...")
+
         # Configure uvicorn loggers to use MA logger
         ma_log_level = self._logger.getEffectiveLevel()
         for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
             uvi_logger = logging.getLogger(name)
             uvi_logger.handlers = self._logger.handlers
             uvi_logger.setLevel(ma_log_level)
+        self._logger.debug("Configured uvicorn loggers")
 
         # Configure MCP/FastMCP loggers to use MA logger
         for name in ("mcp", "mcp.server", "mcp.server.fastmcp", "mcp.server.lowlevel"):
             mcp_logger = logging.getLogger(name)
             mcp_logger.handlers = self._logger.handlers
             mcp_logger.setLevel(ma_log_level)
+        self._logger.debug("Configured MCP loggers")
 
         self._serve_task = asyncio.create_task(self._server.serve())
+        self._logger.debug("MCP server task started")
 
     async def stop(self) -> None:
         """Stop the server."""
         import contextlib  # noqa: PLC0415
 
         if self._serve_task is None:
+            self._logger.debug("Stop called but no server task running")
             return
+
+        self._logger.info("Stopping MCP server...")
 
         # Signal graceful shutdown
         self._server.should_exit = True
+        self._logger.debug("Signaled graceful shutdown")
 
         # Wait briefly for graceful shutdown
         try:
             await asyncio.wait_for(asyncio.shield(self._serve_task), timeout=2.0)
+            self._logger.debug("Graceful shutdown completed")
         except TimeoutError:
             # Force exit
+            self._logger.debug("Graceful shutdown timed out, forcing exit")
             self._server.force_exit = True
             try:
                 await asyncio.wait_for(asyncio.shield(self._serve_task), timeout=1.0)
+                self._logger.debug("Forced shutdown completed")
             except TimeoutError:
                 # Cancel the task
+                self._logger.debug("Forced shutdown timed out, cancelling task")
                 self._serve_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await self._serve_task
+                self._logger.debug("Task cancelled")
         except asyncio.CancelledError:
+            self._logger.debug("Shutdown cancelled, forcing exit")
             self._server.force_exit = True
             self._serve_task.cancel()
 
         self._serve_task = None
+        self._logger.info("MCP server stopped")
 
 
 async def start_mcp_server(

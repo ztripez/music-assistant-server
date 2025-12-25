@@ -256,4 +256,3 @@ class MCPServerProvider(PluginProvider):
             if isinstance(self._mcp_server, MCPServer):
                 await self._mcp_server.stop()
             self._mcp_server = None
-        self.logger.info("MCP server stopped")
