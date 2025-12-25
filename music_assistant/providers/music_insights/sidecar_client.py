@@ -266,6 +266,23 @@ class SidecarClient:
             await self._session.close()
             self._session = None
 
+    @staticmethod
+    async def _get_error_body(resp: aiohttp.ClientResponse) -> str:
+        """Safely extract error body from response (msgpack or text)."""
+        try:
+            data = await resp.read()
+            # Try to decode as msgpack first
+            try:
+                result = msgpack.unpackb(data, raw=False)
+                if isinstance(result, dict):
+                    return str(result.get("error", result))
+                return str(result)
+            except Exception:
+                # Fall back to text decoding
+                return data.decode("utf-8", errors="replace")
+        except Exception:
+            return "<failed to read response body>"
+
     async def health_check(self) -> dict[str, Any]:
         """
         Check if the sidecar is healthy.
@@ -278,7 +295,8 @@ class SidecarClient:
             if resp.status != 200:
                 raise ConnectionError(f"Sidecar health check failed: {resp.status}")
             data = await resp.read()
-            return msgpack.unpackb(data, raw=False)
+            result: dict[str, Any] = msgpack.unpackb(data, raw=False)
+            return result
 
     async def embed_text_and_store(
         self,
@@ -308,9 +326,10 @@ class SidecarClient:
         data = msgpack.packb(payload)
         async with session.post(url, data=data) as resp:
             if resp.status != 200:
-                body = await resp.text()
+                body = await self._get_error_body(resp)
                 raise RuntimeError(f"Failed to embed and store track: {resp.status} - {body}")
-            return msgpack.unpackb(await resp.read(), raw=False)
+            result: dict[str, Any] = msgpack.unpackb(await resp.read(), raw=False)
+            return result
 
     async def batch_embed_text_and_store(
         self,
@@ -343,9 +362,10 @@ class SidecarClient:
         data = msgpack.packb(payload)
         async with session.post(url, data=data) as resp:
             if resp.status != 200:
-                body = await resp.text()
+                body = await self._get_error_body(resp)
                 raise RuntimeError(f"Batch embed failed: {resp.status} - {body}")
-            return msgpack.unpackb(await resp.read(), raw=False)
+            result: dict[str, Any] = msgpack.unpackb(await resp.read(), raw=False)
+            return result
 
     async def search(
         self,
@@ -370,7 +390,7 @@ class SidecarClient:
 
         async with session.post(embed_url, data=embed_data) as resp:
             if resp.status != 200:
-                body = await resp.text()
+                body = await self._get_error_body(resp)
                 raise RuntimeError(f"Failed to embed query: {resp.status} - {body}")
             embed_result = msgpack.unpackb(await resp.read(), raw=False)
             embedding = embed_result["embedding"]
@@ -386,7 +406,7 @@ class SidecarClient:
 
         async with session.post(search_url, data=search_data) as resp:
             if resp.status != 200:
-                body = await resp.text()
+                body = await self._get_error_body(resp)
                 raise RuntimeError(f"Search failed: {resp.status} - {body}")
             result = msgpack.unpackb(await resp.read(), raw=False)
 
@@ -419,7 +439,7 @@ class SidecarClient:
             if resp.status == 404:
                 return []
             if resp.status != 200:
-                body = await resp.text()
+                body = await self._get_error_body(resp)
                 raise RuntimeError(f"Failed to get track: {resp.status} - {body}")
             track_data = msgpack.unpackb(await resp.read(), raw=False)
 
@@ -439,7 +459,7 @@ class SidecarClient:
 
         async with session.post(search_url, data=search_data) as resp:
             if resp.status != 200:
-                body = await resp.text()
+                body = await self._get_error_body(resp)
                 raise RuntimeError(f"Similar search failed: {resp.status} - {body}")
             result = msgpack.unpackb(await resp.read(), raw=False)
 
@@ -471,7 +491,7 @@ class SidecarClient:
             if resp.status == 404:
                 return False
             if resp.status != 200:
-                body = await resp.text()
+                body = await self._get_error_body(resp)
                 raise RuntimeError(f"Delete failed: {resp.status} - {body}")
             return True
 
@@ -508,7 +528,7 @@ class SidecarClient:
         url = f"{self.base_url}/api/v1/status"
         async with session.get(url) as resp:
             if resp.status != 200:
-                body = await resp.text()
+                body = await self._get_error_body(resp)
                 raise RuntimeError(f"Failed to get status: {resp.status} - {body}")
             data = msgpack.unpackb(await resp.read(), raw=False)
             return SystemStatus.from_dict(data)
@@ -523,7 +543,7 @@ class SidecarClient:
         url = f"{self.base_url}/api/v1/models"
         async with session.get(url) as resp:
             if resp.status != 200:
-                body = await resp.text()
+                body = await self._get_error_body(resp)
                 raise RuntimeError(f"Failed to list models: {resp.status} - {body}")
             data = msgpack.unpackb(await resp.read(), raw=False)
 
@@ -546,7 +566,7 @@ class SidecarClient:
 
         async with session.post(url, data=data) as resp:
             if resp.status != 200:
-                body = await resp.text()
+                body = await self._get_error_body(resp)
                 raise RuntimeError(f"Failed to start download: {resp.status} - {body}")
             result = msgpack.unpackb(await resp.read(), raw=False)
             return DownloadModelResult(
@@ -566,7 +586,7 @@ class SidecarClient:
         url = f"{self.base_url}/api/v1/models/downloads"
         async with session.get(url) as resp:
             if resp.status != 200:
-                body = await resp.text()
+                body = await self._get_error_body(resp)
                 raise RuntimeError(f"Failed to list downloads: {resp.status} - {body}")
             data = msgpack.unpackb(await resp.read(), raw=False)
             return [DownloadProgress.from_dict(d) for d in data.get("downloads", [])]
@@ -600,7 +620,7 @@ class SidecarClient:
 
         async with session.post(url, data=data) as resp:
             if resp.status != 200:
-                body = await resp.text()
+                body = await self._get_error_body(resp)
                 raise RuntimeError(f"Failed to load model: {resp.status} - {body}")
             result = msgpack.unpackb(await resp.read(), raw=False)
             return LoadModelResult(
@@ -623,7 +643,7 @@ class SidecarClient:
         url = f"{self.base_url}/api/v1/models/{model_id}"
         async with session.delete(url) as resp:
             if resp.status != 200:
-                body = await resp.text()
+                body = await self._get_error_body(resp)
                 raise RuntimeError(f"Failed to delete model: {resp.status} - {body}")
             result = msgpack.unpackb(await resp.read(), raw=False)
             return DeleteModelResult(
@@ -642,7 +662,7 @@ class SidecarClient:
         url = f"{self.base_url}/api/v1/storage/stats"
         async with session.get(url) as resp:
             if resp.status != 200:
-                body = await resp.text()
+                body = await self._get_error_body(resp)
                 raise RuntimeError(f"Failed to get storage stats: {resp.status} - {body}")
             data = msgpack.unpackb(await resp.read(), raw=False)
             stats = data.get("stats", data)  # Handle wrapped and unwrapped format

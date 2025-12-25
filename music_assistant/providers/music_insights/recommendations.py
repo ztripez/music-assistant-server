@@ -61,7 +61,7 @@ class RecommendationEngine:
         )
 
         # Create or update interaction record
-        interaction = {
+        interaction: dict[str, float | str | bool] = {
             "timestamp": float(time.time()),
             "uri": event.uri,
             "fully_played": event.fully_played,

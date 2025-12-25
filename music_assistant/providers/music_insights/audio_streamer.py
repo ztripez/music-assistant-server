@@ -4,14 +4,30 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 import aiohttp
 import msgpack
 
 if TYPE_CHECKING:
     from music_assistant.mass import MusicAssistant
+
+
+async def _get_error_body(resp: aiohttp.ClientResponse) -> str:
+    """Safely extract error body from response (msgpack or text)."""
+    try:
+        data = await resp.read()
+        try:
+            result = msgpack.unpackb(data, raw=False)
+            if isinstance(result, dict):
+                return str(result.get("error", result))
+            return str(result)
+        except Exception:
+            return data.decode("utf-8", errors="replace")
+    except Exception:
+        return "<failed to read response body>"
 
 
 @dataclass
@@ -61,9 +77,7 @@ class AudioStreamer:
 
     async def start(self) -> None:
         """Start listening for audio frames."""
-        self._http_session = aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=30)
-        )
+        self._http_session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30))
         self._unsubscribe = self.mass.subscribe_audio_frames(self._on_audio_frame)
         self.logger.info("Audio streamer started, listening for audio frames")
 
@@ -113,9 +127,7 @@ class AudioStreamer:
                     await self._end_session(old_queue_item_id, store=True)
 
             # Start new session with sidecar
-            session = await self._start_session(
-                queue_item_id, track_id, sample_rate, channels
-            )
+            session = await self._start_session(queue_item_id, track_id, sample_rate, channels)
             if session is None:
                 return
 
@@ -180,7 +192,7 @@ class AudioStreamer:
                 headers={"Content-Type": "application/msgpack"},
             ) as resp:
                 if resp.status != 200:
-                    body = await resp.text()
+                    body = await _get_error_body(resp)
                     self.logger.warning(
                         "Failed to start stream session for %s: %s - %s",
                         track_id,
@@ -204,9 +216,7 @@ class AudioStreamer:
             queue_item_id=queue_item_id,
         )
         self._sessions[queue_item_id] = session
-        self.logger.debug(
-            "Started stream session %s for track %s", session_id, track_id
-        )
+        self.logger.debug("Started stream session %s for track %s", session_id, track_id)
         return session
 
     async def _send_frames(self, session: StreamSession) -> None:
@@ -243,9 +253,7 @@ class AudioStreamer:
         except Exception as err:
             self.logger.warning("Unexpected error sending frames: %s", err)
 
-    async def end_session_for_track(
-        self, queue_item_id: str, store: bool = True
-    ) -> None:
+    async def end_session_for_track(self, queue_item_id: str, store: bool = True) -> None:
         """
         End a streaming session when track playback ends.
 
@@ -291,7 +299,7 @@ class AudioStreamer:
                         result.get("duration_s", 0),
                     )
                 else:
-                    body = await resp.text()
+                    body = await _get_error_body(resp)
                     self.logger.debug(
                         "Failed to end stream session %s: %s - %s",
                         session.session_id,
