@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from mcp.server.fastmcp import FastMCP
@@ -819,6 +819,96 @@ async def test_play_podcast_episode(mock_mass: Mock) -> None:
     )
     assert "playing" in result.lower()
     mock_mass.player_queues.play_media.assert_called_once()
+
+
+# =============================================================================
+# AUDIOBOOK TOOLS
+# =============================================================================
+
+
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_get_library_audiobooks(mock_mass: Mock) -> None:
+    """Test get_library_audiobooks tool."""
+    from music_assistant.providers.mcp_server.server import (  # noqa: PLC0415
+        _register_audiobook_tools,
+    )
+
+    mcp = FastMCP("test")
+    _register_audiobook_tools(mcp)
+
+    audiobook_tool = _get_tool(mcp, "get_library_audiobooks")
+    assert audiobook_tool is not None
+    result = await audiobook_tool.fn()
+    data = json.loads(result)
+    assert "audiobooks" in data
+    assert len(data["audiobooks"]) == 1
+    assert data["audiobooks"][0]["name"] == "Test Audiobook"
+    assert data["audiobooks"][0]["authors"] == ["Test Author"]
+    mock_mass.music.audiobooks.library_items.assert_called_once()
+
+
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_get_audiobook_chapters(mock_mass: Mock, mock_audiobook: Mock) -> None:
+    """Test get_audiobook_chapters tool."""
+    from music_assistant.providers.mcp_server.server import (  # noqa: PLC0415
+        _register_audiobook_tools,
+    )
+
+    # Mock get_item_by_uri to return the audiobook
+    mock_mass.music.get_item_by_uri = AsyncMock(return_value=mock_audiobook)
+
+    mcp = FastMCP("test")
+    _register_audiobook_tools(mcp)
+
+    chapters_tool = _get_tool(mcp, "get_audiobook_chapters")
+    assert chapters_tool is not None
+    result = await chapters_tool.fn(audiobook_uri="library://audiobook/401")
+    data = json.loads(result)
+    assert "chapters" in data
+    assert "audiobook" in data
+    assert len(data["chapters"]) == 2
+    assert data["chapters"][0]["name"] == "Chapter 1: Beginning"
+
+
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_play_audiobook(mock_mass: Mock) -> None:
+    """Test play_audiobook tool."""
+    from music_assistant.providers.mcp_server.server import (  # noqa: PLC0415
+        _register_audiobook_tools,
+    )
+
+    mcp = FastMCP("test")
+    _register_audiobook_tools(mcp)
+
+    play_tool = _get_tool(mcp, "play_audiobook")
+    assert play_tool is not None
+    result = await play_tool.fn(
+        player_id="player_1",
+        audiobook_uri="library://audiobook/401",
+    )
+    assert "playing" in result.lower()
+    mock_mass.player_queues.play_media.assert_called()
+
+
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_play_audiobook_with_chapter(mock_mass: Mock) -> None:
+    """Test play_audiobook tool with chapter selection."""
+    from music_assistant.providers.mcp_server.server import (  # noqa: PLC0415
+        _register_audiobook_tools,
+    )
+
+    mcp = FastMCP("test")
+    _register_audiobook_tools(mcp)
+
+    play_tool = _get_tool(mcp, "play_audiobook")
+    assert play_tool is not None
+    result = await play_tool.fn(
+        player_id="player_1",
+        audiobook_uri="library://audiobook/401",
+        chapter=2,
+    )
+    assert "chapter 2" in result.lower()
+    mock_mass.player_queues.play_media.assert_called()
 
 
 # =============================================================================

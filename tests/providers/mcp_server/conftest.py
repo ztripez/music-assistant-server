@@ -171,6 +171,47 @@ def mock_podcast_episode() -> Mock:
 
 
 @pytest.fixture
+def mock_audiobook() -> Mock:
+    """Create a mock audiobook."""
+    audiobook = Mock(
+        spec=[
+            "name",
+            "uri",
+            "item_id",
+            "provider",
+            "authors",
+            "narrators",
+            "duration",
+            "resume_position_ms",
+            "fully_played",
+            "metadata",
+        ]
+    )
+    audiobook.name = "Test Audiobook"
+    audiobook.uri = "library://audiobook/401"
+    audiobook.item_id = "401"
+    audiobook.provider = "library"
+    audiobook.authors = ["Test Author"]
+    audiobook.narrators = ["Test Narrator"]
+    audiobook.duration = 36000
+    audiobook.resume_position_ms = 300000
+    audiobook.fully_played = False
+
+    # Mock chapters
+    chapter1 = Mock()
+    chapter1.position = 1
+    chapter1.name = "Chapter 1: Beginning"
+    chapter1.start = 0
+    chapter2 = Mock()
+    chapter2.position = 2
+    chapter2.name = "Chapter 2: Middle"
+    chapter2.start = 12000
+    audiobook.metadata = Mock()
+    audiobook.metadata.chapters = [chapter1, chapter2]
+    return audiobook
+
+
+@pytest.fixture
 def mock_search_results(mock_track: Mock, mock_artist: Mock, mock_album: Mock) -> Mock:
     """Create mock search results."""
     results = Mock()
@@ -205,6 +246,7 @@ def mock_mass(  # noqa: PLR0913, PLR0915
     mock_playlist: Mock,
     mock_podcast: Mock,
     mock_podcast_episode: Mock,
+    mock_audiobook: Mock,
     mock_search_results: Mock,
     mock_provider: Mock,
 ) -> Mock:
@@ -288,6 +330,9 @@ def mock_mass(  # noqa: PLR0913, PLR0915
         yield mock_podcast_episode
 
     mass.music.podcasts.episodes = mock_podcast_episodes
+
+    # Audiobooks controller
+    mass.music.audiobooks.library_items = AsyncMock(return_value=[mock_audiobook])
 
     return mass
 

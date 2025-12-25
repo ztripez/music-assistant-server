@@ -81,6 +81,7 @@ def create_mcp_server(
     if features.get("library_tools", True):
         _register_library_tools(mcp)
         _register_podcast_tools(mcp)
+        _register_audiobook_tools(mcp)
     if features.get("playlist_tools", True):
         _register_playlist_tools(mcp)
     if features.get("player_tools", True):
@@ -1159,6 +1160,115 @@ def _register_podcast_tools(mcp: FastMCP) -> None:
             )
             resume_note = " (resuming from last position)" if resume else ""
             return f"Playing podcast episode on {player_id}{resume_note}"
+        except Exception as e:
+            return f"Error: {e}"
+
+
+# =============================================================================
+# AUDIOBOOK TOOLS
+# =============================================================================
+
+
+def _register_audiobook_tools(mcp: FastMCP) -> None:
+    """Register audiobook management tools."""
+
+    @mcp.tool()
+    async def get_library_audiobooks(search: str = "", limit: int = 50) -> str:
+        """Get audiobooks from the library.
+
+        :param search: Optional search filter.
+        :param limit: Maximum number of audiobooks.
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            audiobooks = await mass.music.audiobooks.library_items(
+                search=search or None,
+                limit=limit,
+            )
+            output = [
+                {
+                    "name": ab.name,
+                    "uri": ab.uri,
+                    "authors": getattr(ab, "authors", []),
+                    "narrators": getattr(ab, "narrators", []),
+                    "duration": getattr(ab, "duration", None),
+                    "resume_position_ms": getattr(ab, "resume_position_ms", None),
+                    "fully_played": getattr(ab, "fully_played", None),
+                }
+                for ab in audiobooks
+            ]
+            return json.dumps({"audiobooks": output}, indent=2)
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def get_audiobook_chapters(audiobook_uri: str) -> str:
+        """Get chapters for an audiobook.
+
+        :param audiobook_uri: The URI of the audiobook.
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            audiobook = await mass.music.get_item_by_uri(audiobook_uri)
+            if not audiobook:
+                return f"Error: Audiobook not found: {audiobook_uri}"
+
+            chapters = []
+            if hasattr(audiobook, "metadata") and hasattr(audiobook.metadata, "chapters"):
+                for chapter in audiobook.metadata.chapters or []:
+                    chapters.append(
+                        {
+                            "position": chapter.position,
+                            "name": getattr(chapter, "name", f"Chapter {chapter.position}"),
+                            "start_seconds": chapter.start,
+                        }
+                    )
+
+            return json.dumps(
+                {
+                    "audiobook": audiobook.name,
+                    "chapters": chapters,
+                    "resume_position_ms": getattr(audiobook, "resume_position_ms", None),
+                    "fully_played": getattr(audiobook, "fully_played", None),
+                },
+                indent=2,
+            )
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def play_audiobook(
+        player_id: str,
+        audiobook_uri: str,
+        chapter: int | None = None,
+    ) -> str:
+        """Play an audiobook on a player.
+
+        :param player_id: Player ID from players:// resource.
+        :param audiobook_uri: The URI of the audiobook to play.
+        :param chapter: Optional chapter number to start from (1-based).
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            from music_assistant_models.enums import QueueOption  # noqa: PLC0415
+
+            # Convert chapter to string for play_media (it will be parsed internally)
+            start_item = str(chapter) if chapter is not None else None
+            await mass.player_queues.play_media(
+                queue_id=player_id,
+                media=audiobook_uri,
+                option=QueueOption.PLAY,
+                radio_mode=False,
+                start_item=start_item,
+            )
+            chapter_note = f" from chapter {chapter}" if chapter else " (resuming)"
+            return f"Playing audiobook on {player_id}{chapter_note}"
         except Exception as e:
             return f"Error: {e}"
 
