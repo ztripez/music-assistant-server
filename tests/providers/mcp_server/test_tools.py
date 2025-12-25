@@ -681,6 +681,120 @@ async def test_get_library_tracks(mock_mass: Mock) -> None:
 
 
 # =============================================================================
+# ADVANCED SEARCH/FILTER TOOLS
+# =============================================================================
+
+
+@pytest.mark.usefixtures("setup_mcp_state", "mock_mass")
+async def test_get_providers() -> None:
+    """Test get_providers tool."""
+    mcp = FastMCP("test")
+    _register_library_tools(mcp)
+
+    tool = _get_tool(mcp, "get_providers")
+    assert tool is not None
+    result = await tool.fn()
+    data = json.loads(result)
+    assert "providers" in data
+    assert len(data["providers"]) == 1
+    assert data["providers"][0]["instance_id"] == "spotify_1"
+    assert data["providers"][0]["name"] == "Spotify"
+
+
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_get_library_tracks_with_order_by(mock_mass: Mock) -> None:
+    """Test get_library_tracks with order_by parameter."""
+    mcp = FastMCP("test")
+    _register_library_tools(mcp)
+
+    tool = _get_tool(mcp, "get_library_tracks")
+    assert tool is not None
+    result = await tool.fn(order_by="play_count_desc")
+    data = json.loads(result)
+    assert "tracks" in data
+    mock_mass.music.tracks.library_items.assert_called_with(
+        search=None,
+        limit=50,
+        favorite=None,
+        order_by="play_count_desc",
+        provider=None,
+    )
+
+
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_get_library_tracks_with_provider(mock_mass: Mock) -> None:
+    """Test get_library_tracks with provider filter."""
+    mcp = FastMCP("test")
+    _register_library_tools(mcp)
+
+    tool = _get_tool(mcp, "get_library_tracks")
+    assert tool is not None
+    result = await tool.fn(provider="spotify_1")
+    data = json.loads(result)
+    assert "tracks" in data
+    mock_mass.music.tracks.library_items.assert_called_with(
+        search=None,
+        limit=50,
+        favorite=None,
+        order_by="sort_name",
+        provider="spotify_1",
+    )
+
+
+@pytest.mark.usefixtures("setup_mcp_state", "mock_mass")
+async def test_get_library_tracks_invalid_order_by() -> None:
+    """Test get_library_tracks with invalid order_by returns error."""
+    mcp = FastMCP("test")
+    _register_library_tools(mcp)
+
+    tool = _get_tool(mcp, "get_library_tracks")
+    assert tool is not None
+    result = await tool.fn(order_by="invalid_sort")
+    assert "error" in result.lower()
+    assert "invalid order_by" in result.lower()
+
+
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_get_library_albums_with_sorting(mock_mass: Mock) -> None:
+    """Test get_library_albums with extended sort options."""
+    mcp = FastMCP("test")
+    _register_library_tools(mcp)
+
+    tool = _get_tool(mcp, "get_library_albums")
+    assert tool is not None
+    result = await tool.fn(order_by="year_desc")
+    data = json.loads(result)
+    assert "albums" in data
+    mock_mass.music.albums.library_items.assert_called_with(
+        search=None,
+        limit=50,
+        favorite=None,
+        order_by="year_desc",
+        provider=None,
+    )
+
+
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_get_library_artists_with_provider(mock_mass: Mock) -> None:
+    """Test get_library_artists with provider filter."""
+    mcp = FastMCP("test")
+    _register_library_tools(mcp)
+
+    tool = _get_tool(mcp, "get_library_artists")
+    assert tool is not None
+    result = await tool.fn(provider="spotify_1", order_by="timestamp_added_desc")
+    data = json.loads(result)
+    assert "artists" in data
+    mock_mass.music.artists.library_items.assert_called_with(
+        search=None,
+        limit=50,
+        favorite=None,
+        order_by="timestamp_added_desc",
+        provider="spotify_1",
+    )
+
+
+# =============================================================================
 # PLAYLIST TOOLS
 # =============================================================================
 

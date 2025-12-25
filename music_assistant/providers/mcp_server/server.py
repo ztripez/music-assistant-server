@@ -14,6 +14,33 @@ if TYPE_CHECKING:
     from music_assistant.mass import MusicAssistant
 
 
+# Valid sort options for library_items queries
+# Maps user-friendly names to internal sort keys
+VALID_SORT_OPTIONS = (
+    "name",
+    "name_desc",
+    "sort_name",
+    "sort_name_desc",
+    "timestamp_added",
+    "timestamp_added_desc",
+    "last_played",
+    "last_played_desc",
+    "play_count",
+    "play_count_desc",
+    "random",
+)
+
+# Additional sort options for tracks/albums that have duration/year
+EXTENDED_SORT_OPTIONS = (
+    *VALID_SORT_OPTIONS,
+    "duration",
+    "duration_desc",
+    "year",
+    "year_desc",
+    "artist_name",
+    "artist_name_desc",
+)
+
 # Module-level state container
 _state: dict[str, Any] = {
     "mass": None,
@@ -623,6 +650,31 @@ def _register_library_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
     """Register library and discovery tools."""
 
     @mcp.tool()
+    async def get_providers() -> str:
+        """Get available music providers for filtering library queries.
+
+        Returns provider instance IDs that can be used with the 'provider' parameter
+        in library tools like get_library_tracks, get_library_albums, etc.
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            providers = mass.music.providers
+            output = [
+                {
+                    "instance_id": p.instance_id,
+                    "name": p.name,
+                    "domain": p.domain,
+                    "available": p.available,
+                }
+                for p in providers
+            ]
+            return json.dumps({"providers": output}, indent=2)
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
     async def get_recommendations() -> str:
         """Get personalized music recommendations."""
         mass = _get_mass()
@@ -871,21 +923,31 @@ def _register_library_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
         search: str = "",
         limit: int = 50,
         favorites_only: bool = False,
+        order_by: str = "sort_name",
+        provider: str = "",
     ) -> str:
         """Get artists from the library.
 
         :param search: Optional search filter.
         :param limit: Maximum number of artists.
         :param favorites_only: Only return favorited artists.
+        :param order_by: Sort order. Options: name, name_desc, sort_name, sort_name_desc,
+            timestamp_added, timestamp_added_desc, last_played, last_played_desc,
+            play_count, play_count_desc, random.
+        :param provider: Filter by provider instance ID (e.g., 'spotify_1').
         """
         mass = _get_mass()
         if mass is None:
             return "Error: Music Assistant not initialized"
         try:
+            if order_by and order_by not in VALID_SORT_OPTIONS:
+                return f"Error: Invalid order_by. Valid options: {', '.join(VALID_SORT_OPTIONS)}"
             artists = await mass.music.artists.library_items(
                 search=search or None,
                 limit=limit,
                 favorite=favorites_only if favorites_only else None,
+                order_by=order_by or "sort_name",
+                provider=provider or None,
             )
             output = [{"name": a.name, "uri": a.uri} for a in artists]
             return json.dumps({"artists": output}, indent=2)
@@ -897,21 +959,31 @@ def _register_library_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
         search: str = "",
         limit: int = 50,
         favorites_only: bool = False,
+        order_by: str = "sort_name",
+        provider: str = "",
     ) -> str:
         """Get albums from the library.
 
         :param search: Optional search filter.
         :param limit: Maximum number of albums.
         :param favorites_only: Only return favorited albums.
+        :param order_by: Sort order. Options: name, name_desc, sort_name, sort_name_desc,
+            timestamp_added, timestamp_added_desc, last_played, last_played_desc,
+            play_count, play_count_desc, random, year, year_desc, artist_name, artist_name_desc.
+        :param provider: Filter by provider instance ID (e.g., 'spotify_1').
         """
         mass = _get_mass()
         if mass is None:
             return "Error: Music Assistant not initialized"
         try:
+            if order_by and order_by not in EXTENDED_SORT_OPTIONS:
+                return f"Error: Invalid order_by. Valid options: {', '.join(EXTENDED_SORT_OPTIONS)}"
             albums = await mass.music.albums.library_items(
                 search=search or None,
                 limit=limit,
                 favorite=favorites_only if favorites_only else None,
+                order_by=order_by or "sort_name",
+                provider=provider or None,
             )
             output = [{"name": a.name, "uri": a.uri} for a in albums]
             return json.dumps({"albums": output}, indent=2)
@@ -923,21 +995,32 @@ def _register_library_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
         search: str = "",
         limit: int = 50,
         favorites_only: bool = False,
+        order_by: str = "sort_name",
+        provider: str = "",
     ) -> str:
         """Get tracks from the library.
 
         :param search: Optional search filter.
         :param limit: Maximum number of tracks.
         :param favorites_only: Only return favorited tracks.
+        :param order_by: Sort order. Options: name, name_desc, sort_name, sort_name_desc,
+            timestamp_added, timestamp_added_desc, last_played, last_played_desc,
+            play_count, play_count_desc, random, duration, duration_desc, year, year_desc,
+            artist_name, artist_name_desc.
+        :param provider: Filter by provider instance ID (e.g., 'spotify_1').
         """
         mass = _get_mass()
         if mass is None:
             return "Error: Music Assistant not initialized"
         try:
+            if order_by and order_by not in EXTENDED_SORT_OPTIONS:
+                return f"Error: Invalid order_by. Valid options: {', '.join(EXTENDED_SORT_OPTIONS)}"
             tracks = await mass.music.tracks.library_items(
                 search=search or None,
                 limit=limit,
                 favorite=favorites_only if favorites_only else None,
+                order_by=order_by or "sort_name",
+                provider=provider or None,
             )
             output = [{"name": t.name, "uri": t.uri} for t in tracks]
             return json.dumps({"tracks": output}, indent=2)
@@ -954,19 +1037,31 @@ def _register_playlist_tools(mcp: FastMCP) -> None:
     """Register playlist management tools."""
 
     @mcp.tool()
-    async def get_playlists(search: str = "", limit: int = 50) -> str:
+    async def get_playlists(
+        search: str = "",
+        limit: int = 50,
+        order_by: str = "sort_name",
+        provider: str = "",
+    ) -> str:
         """Get playlists from the library.
 
         :param search: Optional search filter.
         :param limit: Maximum number of playlists.
+        :param order_by: Sort order. Options: name, name_desc, sort_name, sort_name_desc,
+            timestamp_added, timestamp_added_desc, random.
+        :param provider: Filter by provider instance ID (e.g., 'spotify_1').
         """
         mass = _get_mass()
         if mass is None:
             return "Error: Music Assistant not initialized"
         try:
+            if order_by and order_by not in VALID_SORT_OPTIONS:
+                return f"Error: Invalid order_by. Valid options: {', '.join(VALID_SORT_OPTIONS)}"
             playlists = await mass.music.playlists.library_items(
                 search=search or None,
                 limit=limit,
+                order_by=order_by or "sort_name",
+                provider=provider or None,
             )
             output = [{"name": p.name, "uri": p.uri} for p in playlists]
             return json.dumps({"playlists": output}, indent=2)
@@ -1069,19 +1164,31 @@ def _register_podcast_tools(mcp: FastMCP) -> None:
     """Register podcast management tools."""
 
     @mcp.tool()
-    async def get_library_podcasts(search: str = "", limit: int = 50) -> str:
+    async def get_library_podcasts(
+        search: str = "",
+        limit: int = 50,
+        order_by: str = "sort_name",
+        provider: str = "",
+    ) -> str:
         """Get podcasts from the library.
 
         :param search: Optional search filter.
         :param limit: Maximum number of podcasts.
+        :param order_by: Sort order. Options: name, name_desc, sort_name, sort_name_desc,
+            timestamp_added, timestamp_added_desc, last_played, last_played_desc, random.
+        :param provider: Filter by provider instance ID (e.g., 'spotify_1').
         """
         mass = _get_mass()
         if mass is None:
             return "Error: Music Assistant not initialized"
         try:
+            if order_by and order_by not in VALID_SORT_OPTIONS:
+                return f"Error: Invalid order_by. Valid options: {', '.join(VALID_SORT_OPTIONS)}"
             podcasts = await mass.music.podcasts.library_items(
                 search=search or None,
                 limit=limit,
+                order_by=order_by or "sort_name",
+                provider=provider or None,
             )
             output = [
                 {
@@ -1175,19 +1282,31 @@ def _register_radio_tools(mcp: FastMCP) -> None:
     """Register radio station tools."""
 
     @mcp.tool()
-    async def get_library_radios(search: str = "", limit: int = 50) -> str:
+    async def get_library_radios(
+        search: str = "",
+        limit: int = 50,
+        order_by: str = "sort_name",
+        provider: str = "",
+    ) -> str:
         """Get radio stations from the library.
 
         :param search: Optional search filter.
         :param limit: Maximum number of radio stations.
+        :param order_by: Sort order. Options: name, name_desc, sort_name, sort_name_desc,
+            timestamp_added, timestamp_added_desc, random.
+        :param provider: Filter by provider instance ID (e.g., 'tunein').
         """
         mass = _get_mass()
         if mass is None:
             return "Error: Music Assistant not initialized"
         try:
+            if order_by and order_by not in VALID_SORT_OPTIONS:
+                return f"Error: Invalid order_by. Valid options: {', '.join(VALID_SORT_OPTIONS)}"
             radios = await mass.music.radio.library_items(
                 search=search or None,
                 limit=limit,
+                order_by=order_by or "sort_name",
+                provider=provider or None,
             )
             output = [
                 {
@@ -1237,19 +1356,32 @@ def _register_audiobook_tools(mcp: FastMCP) -> None:
     """Register audiobook management tools."""
 
     @mcp.tool()
-    async def get_library_audiobooks(search: str = "", limit: int = 50) -> str:
+    async def get_library_audiobooks(
+        search: str = "",
+        limit: int = 50,
+        order_by: str = "sort_name",
+        provider: str = "",
+    ) -> str:
         """Get audiobooks from the library.
 
         :param search: Optional search filter.
         :param limit: Maximum number of audiobooks.
+        :param order_by: Sort order. Options: name, name_desc, sort_name, sort_name_desc,
+            timestamp_added, timestamp_added_desc, last_played, last_played_desc, random,
+            duration, duration_desc.
+        :param provider: Filter by provider instance ID (e.g., 'audible').
         """
         mass = _get_mass()
         if mass is None:
             return "Error: Music Assistant not initialized"
         try:
+            if order_by and order_by not in EXTENDED_SORT_OPTIONS:
+                return f"Error: Invalid order_by. Valid options: {', '.join(EXTENDED_SORT_OPTIONS)}"
             audiobooks = await mass.music.audiobooks.library_items(
                 search=search or None,
                 limit=limit,
+                order_by=order_by or "sort_name",
+                provider=provider or None,
             )
             output = [
                 {
