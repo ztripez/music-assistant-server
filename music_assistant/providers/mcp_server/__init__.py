@@ -165,6 +165,7 @@ class MCPServerProvider(PluginProvider):
     """MCP Server provider for Music Assistant."""
 
     _server_task: asyncio.Task[None] | None = None
+    _shutdown_event: asyncio.Event | None = None
 
     @property
     def port(self) -> int:
@@ -194,13 +195,13 @@ class MCPServerProvider(PluginProvider):
             "prompts": bool(self.config.get_value(CONF_ENABLE_PROMPTS)),
         }
 
-    async def handle_async_init(self) -> None:
-        """Handle async initialization of the provider."""
-        from .server import run_mcp_server  # noqa: PLC0415
+    async def loaded_in_mass(self) -> None:
+        """Call after the provider has been loaded."""
+        await super().loaded_in_mass()
+        from .server import start_mcp_server  # noqa: PLC0415
 
-        self._server_task = await run_mcp_server(
+        self._server_task, self._shutdown_event = await start_mcp_server(
             mass=self.mass,
-            host="0.0.0.0",
             port=self.port,
             require_auth=self.require_auth,
             enabled_features=self.enabled_features,
@@ -209,16 +210,22 @@ class MCPServerProvider(PluginProvider):
         # Get the publish IP from the streams controller for consistent URL display
         publish_ip = self.mass.streams.publish_ip
         self.logger.info(
-            "MCP Server started on http://%s:%d/mcp",
+            "MCP Server started on http://%s:%d/",
             publish_ip,
             self.port,
         )
 
     async def unload(self, is_removed: bool = False) -> None:
         """Handle unload/close of the provider."""
-        if self._server_task and not self._server_task.done():
-            self._server_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._server_task
+        if self._shutdown_event is not None:
+            self._shutdown_event.set()
+            if self._server_task is not None:
+                # Give the server time to shutdown gracefully
+                with contextlib.suppress(TimeoutError, asyncio.CancelledError):
+                    await asyncio.wait_for(
+                        asyncio.shield(self._server_task),
+                        timeout=5.0,
+                    )
             self._server_task = None
+            self._shutdown_event = None
         self.logger.info("MCP server stopped")

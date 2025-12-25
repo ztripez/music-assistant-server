@@ -24,8 +24,6 @@ from .tools import (
 )
 
 if TYPE_CHECKING:
-    from starlette.applications import Starlette
-
     from music_assistant.mass import MusicAssistant
 
 LOGGER = logging.getLogger(__name__)
@@ -105,63 +103,65 @@ def create_mcp_server(
     return mcp
 
 
-def create_mcp_asgi_app(
+async def start_mcp_server(
     mass: MusicAssistant,
-    require_auth: bool = True,
-    enabled_features: dict[str, bool] | None = None,
-) -> Starlette:
-    """Create the MCP ASGI application.
-
-    :param mass: MusicAssistant instance.
-    :param require_auth: Whether to require authentication.
-    :param enabled_features: Dictionary of feature flags to enable/disable tool categories.
-    :return: Starlette ASGI application.
-    """
-    from starlette.middleware.cors import CORSMiddleware  # noqa: PLC0415
-
-    mcp = create_mcp_server(mass, require_auth, enabled_features)
-    app = mcp.streamable_http_app()
-
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-        expose_headers=["*"],
-    )
-
-    return app
-
-
-async def run_mcp_server(
-    mass: MusicAssistant,
-    host: str,
     port: int,
     require_auth: bool = True,
     enabled_features: dict[str, bool] | None = None,
-) -> asyncio.Task[None]:
-    """Start the MCP server using uvicorn.
+) -> tuple[asyncio.Task[None], asyncio.Event]:
+    """Start the MCP server.
 
     :param mass: MusicAssistant instance.
-    :param host: Host address to bind to.
-    :param port: Port number to bind to.
+    :param port: Port to run the server on.
     :param require_auth: Whether to require authentication.
     :param enabled_features: Dictionary of feature flags to enable/disable tool categories.
-    :return: The asyncio task running the server.
+    :return: Tuple of (server task, shutdown event).
     """
-    import uvicorn  # noqa: PLC0415
+    import contextlib  # noqa: PLC0415
 
-    app = create_mcp_asgi_app(mass, require_auth, enabled_features)
+    mcp = create_mcp_server(mass, require_auth, enabled_features)
+    shutdown_event = asyncio.Event()
 
-    config = uvicorn.Config(
-        app=app,
-        host=host,
-        port=port,
-        log_level="warning",
-    )
-    server = uvicorn.Server(config)
+    async def run_server() -> None:
+        """Run the uvicorn server."""
+        import uvicorn  # noqa: PLC0415
 
-    task = asyncio.create_task(server.serve())
-    LOGGER.info("MCP server started on http://%s:%d/mcp", host, port)
-    return task
+        # Configure the MCP server path
+        mcp.settings.streamable_http_path = "/"
+
+        config = uvicorn.Config(
+            app=mcp.streamable_http_app(),
+            host="0.0.0.0",
+            port=port,
+            log_level="warning",
+            access_log=False,
+        )
+        server = uvicorn.Server(config)
+
+        try:
+            # Run server until shutdown is requested
+            server_task = asyncio.create_task(server.serve())
+
+            # Wait for shutdown signal
+            await shutdown_event.wait()
+
+            # Graceful shutdown - give connections 2 seconds to close
+            server.should_exit = True
+            try:
+                await asyncio.wait_for(server_task, timeout=2.0)
+            except TimeoutError:
+                # Force exit if connections don't close in time
+                server.force_exit = True
+                try:
+                    await asyncio.wait_for(server_task, timeout=1.0)
+                except TimeoutError:
+                    server_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await server_task
+        except asyncio.CancelledError:
+            # Handle task cancellation during shutdown
+            server.force_exit = True
+            raise
+
+    task = asyncio.create_task(run_server())
+    return task, shutdown_event
