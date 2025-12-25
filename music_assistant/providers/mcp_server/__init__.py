@@ -206,7 +206,14 @@ class MCPServerProvider(PluginProvider):
             enabled_features=self.enabled_features,
         )
 
-        self.logger.info("MCP server available at http://0.0.0.0:%d/mcp", self.port)
+        # Get the publish IP from the streams controller for consistent URL display
+        publish_ip = self.mass.streams.publish_ip
+        self.logger.info(
+            "MCP Server available at http://%s:%d/mcp (port: %d)",
+            publish_ip,
+            self.port,
+            self.port,
+        )
 
     async def unload(self, is_removed: bool = False) -> None:
         """Handle unload/close of the provider."""
