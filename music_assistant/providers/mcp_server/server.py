@@ -771,6 +771,31 @@ def _register_library_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
             return f"Error: {e}"
 
     @mcp.tool()
+    async def get_in_progress_items(limit: int = 20) -> str:
+        """Get audiobooks and podcast episodes that are in progress.
+
+        Returns items that have been partially played but not finished.
+
+        :param limit: Maximum number of items to return.
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            items = await mass.music.in_progress_items(limit=limit)
+            output = [
+                {
+                    "name": item.name,
+                    "uri": item.uri,
+                    "type": item.media_type.value if hasattr(item, "media_type") else None,
+                }
+                for item in items
+            ]
+            return json.dumps({"in_progress": output}, indent=2)
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
     async def get_artist_tracks(artist_uri: str, limit: int = 50) -> str:
         """Get all tracks by an artist.
 

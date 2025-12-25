@@ -503,6 +503,20 @@ async def test_browse_library(mock_mass: Mock) -> None:
 
 
 @pytest.mark.usefixtures("setup_mcp_state")
+async def test_get_in_progress_items(mock_mass: Mock) -> None:
+    """Test get_in_progress_items tool."""
+    mcp = FastMCP("test")
+    _register_library_tools(mcp)
+
+    in_progress_tool = _get_tool(mcp, "get_in_progress_items")
+    assert in_progress_tool is not None
+    result = await in_progress_tool.fn(limit=10)
+    data = json.loads(result)
+    assert "in_progress" in data
+    mock_mass.music.in_progress_items.assert_called_once_with(limit=10)
+
+
+@pytest.mark.usefixtures("setup_mcp_state")
 async def test_add_to_favorites(mock_mass: Mock) -> None:
     """Test add_to_favorites tool."""
     mcp = FastMCP("test")

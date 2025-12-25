@@ -307,6 +307,7 @@ def mock_mass(  # noqa: PLR0913, PLR0915
     mass.music.recommendations = AsyncMock(return_value=[])
     mass.music.recently_played = AsyncMock(return_value=[mock_track])
     mass.music.recently_added_tracks = AsyncMock(return_value=[mock_track])
+    mass.music.in_progress_items = AsyncMock(return_value=[])
     mass.music.add_item_to_library = AsyncMock()
     mass.music.remove_item_from_library = AsyncMock()
     mass.music.add_item_to_favorites = AsyncMock()
