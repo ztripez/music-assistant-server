@@ -1414,6 +1414,17 @@ class StreamsController(CoreController):
                         streamdetails.uri,
                         asyncio.get_event_loop().time() - stream_started_at,
                     )
+                # Emit audio frame to subscribers (e.g., for audio embeddings)
+                if queue_item.media_item and self.mass._audio_frame_subscribers:
+                    self.mass.create_task(
+                        self.mass.emit_audio_frame(
+                            queue_item_id=queue_item.queue_item_id,
+                            track_id=queue_item.media_item.item_id,
+                            chunk=chunk,
+                            sample_rate=pcm_format.sample_rate,
+                            channels=pcm_format.channels,
+                        )
+                    )
                 # handle optional fade-in
                 if streamdetails.fade_in:
                     if len(fade_in_buffer) < pcm_format.pcm_sample_size * 4:

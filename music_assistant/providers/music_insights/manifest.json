@@ -1,0 +1,9 @@
+{
+  "type": "music",
+  "domain": "music_insights",
+  "name": "Music Insights",
+  "description": "Provides music recommendations, similar track suggestions, and semantic search capabilities powered by the Insight Sidecar service.",
+  "codeowners": ["@ztripez"],
+  "requirements": ["msgpack"],
+  "documentation": "https://github.com/ztripez/music-assistant-insights"
+}

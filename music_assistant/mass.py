@@ -81,6 +81,10 @@ EventSubscriptionType = tuple[
     EventCallBackType, tuple[EventType, ...] | None, tuple[str, ...] | None
 ]
 
+# Audio frame callback type for real-time audio streaming
+# Args: queue_item_id, track_id, pcm_bytes, sample_rate, channels
+AudioFrameCallbackType = Callable[[str, str, bytes, int, int], Coroutine[Any, Any, None]]
+
 LOGGER = logging.getLogger(MASS_LOGGER_NAME)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -136,6 +140,8 @@ class MusicAssistant:
         )
         self._http_session: ClientSession | None = None
         self._http_session_no_ssl: ClientSession | None = None
+        # Audio frame subscribers for real-time audio streaming (e.g., for embeddings)
+        self._audio_frame_subscribers: list[AudioFrameCallbackType] = []
 
     async def start(self) -> None:
         """Start running the Music Assistant server."""
@@ -435,6 +441,54 @@ class MusicAssistant:
             self._subscribers.remove(listener)
 
         return remove_listener
+
+    def subscribe_audio_frames(
+        self,
+        callback: AudioFrameCallbackType,
+    ) -> Callable[[], None]:
+        """Subscribe to audio frame events for real-time audio processing.
+
+        Used by providers that need access to PCM audio data during playback,
+        such as the music_insights provider for audio embedding generation.
+
+        Returns function to remove the listener.
+            :param callback: Async callback receiving (queue_item_id, track_id, pcm_bytes, sample_rate, channels)
+        """
+        self._audio_frame_subscribers.append(callback)
+
+        def remove_listener() -> None:
+            if callback in self._audio_frame_subscribers:
+                self._audio_frame_subscribers.remove(callback)
+
+        return remove_listener
+
+    async def emit_audio_frame(
+        self,
+        queue_item_id: str,
+        track_id: str | None,
+        chunk: bytes,
+        sample_rate: int,
+        channels: int,
+    ) -> None:
+        """Emit audio frame to all subscribers.
+
+        Called by the streams controller during playback to allow providers
+        to process audio data in real-time.
+
+            :param queue_item_id: Unique identifier for the queue item being played
+            :param track_id: Track ID (may be None for radio streams)
+            :param chunk: Raw PCM audio bytes
+            :param sample_rate: Sample rate in Hz (typically 48000)
+            :param channels: Number of audio channels (1 or 2)
+        """
+        if not self._audio_frame_subscribers or not track_id:
+            return
+
+        for callback in self._audio_frame_subscribers:
+            try:
+                await callback(queue_item_id, track_id, chunk, sample_rate, channels)
+            except Exception as err:
+                LOGGER.warning("Audio frame subscriber error: %s", err)
 
     def create_task(
         self,
