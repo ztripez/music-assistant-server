@@ -103,65 +103,104 @@ def create_mcp_server(
     return mcp
 
 
+class MCPServer:
+    """Wrapper for the MCP uvicorn server."""
+
+    def __init__(
+        self,
+        mass: MusicAssistant,
+        port: int,
+        require_auth: bool,
+        enabled_features: dict[str, bool] | None,
+        logger: logging.Logger,
+    ) -> None:
+        """Initialize the MCP server wrapper."""
+        import uvicorn  # noqa: PLC0415
+
+        mcp = create_mcp_server(mass, require_auth, enabled_features)
+        mcp.settings.streamable_http_path = "/"
+
+        # Map MA log level to uvicorn log level
+        ma_log_level = logger.getEffectiveLevel()
+        uvicorn_log_level = logging.getLevelName(ma_log_level).lower()
+
+        config = uvicorn.Config(
+            app=mcp.streamable_http_app(),
+            host="0.0.0.0",
+            port=port,
+            log_level=uvicorn_log_level,
+            access_log=ma_log_level <= logging.DEBUG,
+            log_config=None,  # Disable uvicorn's default logging config
+        )
+        self._server = uvicorn.Server(config)
+        self._serve_task: asyncio.Task[None] | None = None
+        self._logger = logger
+
+    async def start(self) -> None:
+        """Start the server."""
+        # Configure uvicorn loggers to use MA logger
+        ma_log_level = self._logger.getEffectiveLevel()
+        for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+            uvi_logger = logging.getLogger(name)
+            uvi_logger.handlers = self._logger.handlers
+            uvi_logger.setLevel(ma_log_level)
+
+        # Configure MCP/FastMCP loggers to use MA logger
+        for name in ("mcp", "mcp.server", "mcp.server.fastmcp", "mcp.server.lowlevel"):
+            mcp_logger = logging.getLogger(name)
+            mcp_logger.handlers = self._logger.handlers
+            mcp_logger.setLevel(ma_log_level)
+
+        self._serve_task = asyncio.create_task(self._server.serve())
+
+    async def stop(self) -> None:
+        """Stop the server."""
+        import contextlib  # noqa: PLC0415
+
+        if self._serve_task is None:
+            return
+
+        # Signal graceful shutdown
+        self._server.should_exit = True
+
+        # Wait briefly for graceful shutdown
+        try:
+            await asyncio.wait_for(asyncio.shield(self._serve_task), timeout=2.0)
+        except TimeoutError:
+            # Force exit
+            self._server.force_exit = True
+            try:
+                await asyncio.wait_for(asyncio.shield(self._serve_task), timeout=1.0)
+            except TimeoutError:
+                # Cancel the task
+                self._serve_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._serve_task
+        except asyncio.CancelledError:
+            self._server.force_exit = True
+            self._serve_task.cancel()
+
+        self._serve_task = None
+
+
 async def start_mcp_server(
     mass: MusicAssistant,
     port: int,
     require_auth: bool = True,
     enabled_features: dict[str, bool] | None = None,
-) -> tuple[asyncio.Task[None], asyncio.Event]:
+    logger: logging.Logger | None = None,
+) -> MCPServer:
     """Start the MCP server.
 
     :param mass: MusicAssistant instance.
     :param port: Port to run the server on.
     :param require_auth: Whether to require authentication.
     :param enabled_features: Dictionary of feature flags to enable/disable tool categories.
-    :return: Tuple of (server task, shutdown event).
+    :param logger: Logger to use for MCP and uvicorn logging.
+    :return: MCPServer instance that can be stopped.
     """
-    import contextlib  # noqa: PLC0415
-
-    mcp = create_mcp_server(mass, require_auth, enabled_features)
-    shutdown_event = asyncio.Event()
-
-    async def run_server() -> None:
-        """Run the uvicorn server."""
-        import uvicorn  # noqa: PLC0415
-
-        # Configure the MCP server path
-        mcp.settings.streamable_http_path = "/"
-
-        config = uvicorn.Config(
-            app=mcp.streamable_http_app(),
-            host="0.0.0.0",
-            port=port,
-            log_level="warning",
-            access_log=False,
-        )
-        server = uvicorn.Server(config)
-
-        try:
-            # Run server until shutdown is requested
-            server_task = asyncio.create_task(server.serve())
-
-            # Wait for shutdown signal
-            await shutdown_event.wait()
-
-            # Graceful shutdown - give connections 2 seconds to close
-            server.should_exit = True
-            try:
-                await asyncio.wait_for(server_task, timeout=2.0)
-            except TimeoutError:
-                # Force exit if connections don't close in time
-                server.force_exit = True
-                try:
-                    await asyncio.wait_for(server_task, timeout=1.0)
-                except TimeoutError:
-                    server_task.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
-                        await server_task
-        except asyncio.CancelledError:
-            # Handle task cancellation during shutdown
-            server.force_exit = True
-            raise
-
-    task = asyncio.create_task(run_server())
-    return task, shutdown_event
+    if logger is None:
+        logger = LOGGER
+    server = MCPServer(mass, port, require_auth, enabled_features, logger)
+    await server.start()
+    return server

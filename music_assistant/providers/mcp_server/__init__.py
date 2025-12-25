@@ -8,8 +8,6 @@ and interact with speakers.
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
 from typing import TYPE_CHECKING
 
 from music_assistant_models.config_entries import ConfigEntry, ConfigValueType
@@ -53,13 +51,45 @@ async def setup(
 
 
 async def get_config_entries(
-    mass: MusicAssistant,  # noqa: ARG001
+    mass: MusicAssistant,
     instance_id: str | None = None,  # noqa: ARG001
     action: str | None = None,  # noqa: ARG001
-    values: dict[str, ConfigValueType] | None = None,  # noqa: ARG001
+    values: dict[str, ConfigValueType] | None = None,
 ) -> tuple[ConfigEntry, ...]:
     """Return Config entries to setup this provider."""
+    # Get the configured port (use default if not set yet)
+    port = values.get(CONF_PORT, DEFAULT_PORT) if values else DEFAULT_PORT
+    if not isinstance(port, int):
+        port = DEFAULT_PORT
+
+    # Build the MCP server URL using the webserver's publish IP
+    try:
+        host = mass.streams.publish_ip
+    except Exception:
+        host = "localhost"
+    mcp_url = f"http://{host}:{port}/"
+
+    # Build connection info text
+    connection_info = (
+        f"**MCP Server Endpoint:** `{mcp_url}`\n\n"
+        "**Authentication:** When authentication is enabled, include a bearer token "
+        "in your requests:\n"
+        "```\n"
+        "Authorization: Bearer <your-token>\n"
+        "```\n\n"
+        "**To create a token:**\n"
+        f"1. Open the Music Assistant UI at `{mass.webserver.base_url}`\n"
+        "2. Go to Settings → Security\n"
+        "3. Create a new API token\n"
+        "4. Copy the token and use it in your MCP client configuration"
+    )
+
     return (
+        ConfigEntry(
+            key="connection_info",
+            type=ConfigEntryType.LABEL,
+            label=connection_info,
+        ),
         ConfigEntry(
             key=CONF_PORT,
             type=ConfigEntryType.INTEGER,
@@ -164,8 +194,10 @@ async def get_config_entries(
 class MCPServerProvider(PluginProvider):
     """MCP Server provider for Music Assistant."""
 
-    _server_task: asyncio.Task[None] | None = None
-    _shutdown_event: asyncio.Event | None = None
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        """Initialize the provider."""
+        super().__init__(*args, **kwargs)  # type: ignore[arg-type]
+        self._mcp_server: object | None = None
 
     @property
     def port(self) -> int:
@@ -200,11 +232,12 @@ class MCPServerProvider(PluginProvider):
         await super().loaded_in_mass()
         from .server import start_mcp_server  # noqa: PLC0415
 
-        self._server_task, self._shutdown_event = await start_mcp_server(
+        self._mcp_server = await start_mcp_server(
             mass=self.mass,
             port=self.port,
             require_auth=self.require_auth,
             enabled_features=self.enabled_features,
+            logger=self.logger,
         )
 
         # Get the publish IP from the streams controller for consistent URL display
@@ -217,15 +250,10 @@ class MCPServerProvider(PluginProvider):
 
     async def unload(self, is_removed: bool = False) -> None:
         """Handle unload/close of the provider."""
-        if self._shutdown_event is not None:
-            self._shutdown_event.set()
-            if self._server_task is not None:
-                # Give the server time to shutdown gracefully
-                with contextlib.suppress(TimeoutError, asyncio.CancelledError):
-                    await asyncio.wait_for(
-                        asyncio.shield(self._server_task),
-                        timeout=5.0,
-                    )
-            self._server_task = None
-            self._shutdown_event = None
+        if self._mcp_server is not None:
+            from .server import MCPServer  # noqa: PLC0415
+
+            if isinstance(self._mcp_server, MCPServer):
+                await self._mcp_server.stop()
+            self._mcp_server = None
         self.logger.info("MCP server stopped")
