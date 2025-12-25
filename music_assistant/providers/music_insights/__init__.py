@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from collections.abc import Callable
 from typing import TYPE_CHECKING, cast
 
@@ -137,76 +139,42 @@ class MusicInsightProvider(MusicProvider):
 
         Sets up the sidecar connection, ensures the configured model is loaded,
         sets up the recommendation engine, and subscribes to relevant events.
+
+        The provider will start even if the sidecar is unavailable, and will
+        keep trying to connect in the background.
         """
-        sidecar_url = cast("str", self.config.get_value("sidecar_url") or "http://localhost:8096")
-        model_id = cast("str", self.config.get_value("model_id") or "Xenova/clap-htsat-unfused")
-        enable_audio_streaming = cast("bool", self.config.get_value("enable_audio_streaming") or True)
+        self._sidecar_url = cast(
+            "str", self.config.get_value("sidecar_url") or "http://localhost:8096"
+        )
+        self._model_id = cast(
+            "str", self.config.get_value("model_id") or "Xenova/clap-htsat-unfused"
+        )
+        self._enable_audio_streaming = cast(
+            "bool", self.config.get_value("enable_audio_streaming") or True
+        )
         rebuild_on_start = cast("bool", self.config.get_value("rebuild_on_start") or False)
+
+        self._sidecar_connected = False
+        self._connection_task: asyncio.Task[None] | None = None
 
         self.embeddings = SidecarEmbeddings(
             self.mass,
             self.logger,
-            sidecar_url=sidecar_url,
+            sidecar_url=self._sidecar_url,
         )
-
-        try:
-            await self.embeddings.async_init()
-        except Exception as e:
-            self.logger.error(
-                "Failed to connect to insight sidecar at %s: %s. Make sure the sidecar is running.",
-                sidecar_url,
-                e,
-            )
-            raise
-
-        # Ensure the configured model is loaded
-        try:
-            status = await self.embeddings.get_status()
-            current_model = status.model
-            current_model_id = current_model.model_id if current_model else None
-
-            if current_model_id != model_id:
-                self.logger.info(
-                    "Configured model '%s' differs from loaded model '%s'. Switching...",
-                    model_id,
-                    current_model_id or "none",
-                )
-                if await self.embeddings.ensure_model_loaded(model_id):
-                    self.logger.info("Model '%s' loaded successfully.", model_id)
-                else:
-                    self.logger.warning(
-                        "Failed to load configured model '%s'. Using current model '%s' instead.",
-                        model_id,
-                        current_model_id,
-                    )
-            else:
-                self.logger.info("Configured model '%s' is already loaded.", model_id)
-        except Exception as e:
-            self.logger.warning(
-                "Could not verify/load model '%s': %s. Continuing with current model.",
-                model_id,
-                e,
-            )
 
         self.recommendation_engine = RecommendationEngine(self.mass, self.embeddings)
 
-        # Initialize audio streamer for real-time audio embeddings
+        # Initialize audio streamer (will handle connection failures gracefully)
         self.audio_streamer: AudioStreamer | None = None
-        if enable_audio_streaming:
+        if self._enable_audio_streaming:
             self.audio_streamer = AudioStreamer(
                 self.mass,
-                sidecar_url=sidecar_url,
+                sidecar_url=self._sidecar_url,
                 logger=self.logger,
             )
-            try:
-                await self.audio_streamer.start()
-                self.logger.info("Audio streaming enabled for real-time audio embeddings")
-            except Exception as e:
-                self.logger.warning(
-                    "Failed to start audio streamer: %s. Audio embeddings will not be generated.",
-                    e,
-                )
-                self.audio_streamer = None
+            await self.audio_streamer.start()
+            self.logger.info("Audio streaming enabled for real-time audio embeddings")
 
         # Subscribe to library events
         self._on_unload.append(
@@ -228,10 +196,71 @@ class MusicInsightProvider(MusicProvider):
 
         self.logger.info("Subscribed to library and player events.")
 
-        # Optionally rebuild embeddings on start
-        if rebuild_on_start:
-            self.logger.info("Scheduling full embedding rebuild (rebuild_on_start=True)")
-            self.mass.create_task(self._rebuild_embeddings())
+        # Try to connect to sidecar (non-blocking, will retry in background)
+        self._connection_task = self.mass.create_task(
+            self._connect_to_sidecar(rebuild_on_start=rebuild_on_start)
+        )
+
+    async def _connect_to_sidecar(self, rebuild_on_start: bool = False) -> None:
+        """
+        Connect to the sidecar with retry logic.
+
+        Will keep trying to connect every 30 seconds until successful.
+        """
+        retry_interval = 30
+
+        while not self._sidecar_connected:
+            try:
+                await self.embeddings.async_init()
+                self._sidecar_connected = True
+                self.logger.info("Connected to insight sidecar at %s", self._sidecar_url)
+
+                # Ensure the configured model is loaded
+                await self._ensure_model_loaded()
+
+                # Optionally rebuild embeddings on start
+                if rebuild_on_start:
+                    self.logger.info("Scheduling full embedding rebuild (rebuild_on_start=True)")
+                    self.mass.create_task(self._rebuild_embeddings())
+
+            except Exception as e:
+                self.logger.warning(
+                    "Failed to connect to insight sidecar at %s: %s. Retrying in %ds...",
+                    self._sidecar_url,
+                    e,
+                    retry_interval,
+                )
+                await asyncio.sleep(retry_interval)
+
+    async def _ensure_model_loaded(self) -> None:
+        """Ensure the configured model is loaded on the sidecar."""
+        try:
+            status = await self.embeddings.get_status()
+            current_model = status.model
+            current_model_id = current_model.model_id if current_model else None
+
+            if current_model_id != self._model_id:
+                self.logger.info(
+                    "Configured model '%s' differs from loaded model '%s'. Switching...",
+                    self._model_id,
+                    current_model_id or "none",
+                )
+                if await self.embeddings.ensure_model_loaded(self._model_id):
+                    self.logger.info("Model '%s' loaded successfully.", self._model_id)
+                else:
+                    self.logger.warning(
+                        "Failed to load configured model '%s'. Using current model '%s' instead.",
+                        self._model_id,
+                        current_model_id,
+                    )
+            else:
+                self.logger.info("Configured model '%s' is already loaded.", self._model_id)
+        except Exception as e:
+            self.logger.warning(
+                "Could not verify/load model '%s': %s. Continuing with current model.",
+                self._model_id,
+                e,
+            )
 
     async def handle_library_update(self, event: MassEvent) -> None:
         """
@@ -267,6 +296,12 @@ class MusicInsightProvider(MusicProvider):
         Called when provider is deregistered (e.g. MA exiting or config reloading).
         is_removed will be set to True when the provider is removed from the configuration.
         """
+        # Cancel connection task if still running
+        if self._connection_task and not self._connection_task.done():
+            self._connection_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._connection_task
+
         for unload_cb in self._on_unload:
             unload_cb()
 
