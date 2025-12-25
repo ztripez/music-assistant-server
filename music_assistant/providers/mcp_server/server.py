@@ -650,31 +650,6 @@ def _register_library_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
     """Register library and discovery tools."""
 
     @mcp.tool()
-    async def get_providers() -> str:
-        """Get available music providers for filtering library queries.
-
-        Returns provider instance IDs that can be used with the 'provider' parameter
-        in library tools like get_library_tracks, get_library_albums, etc.
-        """
-        mass = _get_mass()
-        if mass is None:
-            return "Error: Music Assistant not initialized"
-        try:
-            providers = mass.music.providers
-            output = [
-                {
-                    "instance_id": p.instance_id,
-                    "name": p.name,
-                    "domain": p.domain,
-                    "available": p.available,
-                }
-                for p in providers
-            ]
-            return json.dumps({"providers": output}, indent=2)
-        except Exception as e:
-            return f"Error: {e}"
-
-    @mcp.tool()
     async def get_recommendations() -> str:
         """Get personalized music recommendations."""
         mass = _get_mass()

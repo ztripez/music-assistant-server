@@ -699,22 +699,6 @@ async def test_get_library_tracks(mock_mass: Mock) -> None:
 # =============================================================================
 
 
-@pytest.mark.usefixtures("setup_mcp_state", "mock_mass")
-async def test_get_providers() -> None:
-    """Test get_providers tool."""
-    mcp = FastMCP("test")
-    _register_library_tools(mcp)
-
-    tool = _get_tool(mcp, "get_providers")
-    assert tool is not None
-    result = await tool.fn()
-    data = json.loads(result)
-    assert "providers" in data
-    assert len(data["providers"]) == 1
-    assert data["providers"][0]["instance_id"] == "spotify_1"
-    assert data["providers"][0]["name"] == "Spotify"
-
-
 @pytest.mark.usefixtures("setup_mcp_state")
 async def test_get_library_tracks_with_order_by(mock_mass: Mock) -> None:
     """Test get_library_tracks with order_by parameter."""
