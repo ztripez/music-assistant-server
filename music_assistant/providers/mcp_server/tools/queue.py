@@ -147,15 +147,14 @@ def register_queue_edit_tools(mcp: FastMCP, mass: MusicAssistant) -> None:
         if queue_item_id is None and index is None:
             return "Error: Must provide either queue_item_id or index"
         try:
-            # If index provided, look up the queue_item_id
-            if queue_item_id is None and index is not None:
+            if queue_item_id is None:
                 items = mass.player_queues.items(player_id)
-                if index < 0 or index >= len(items):
+                if index is None or index < 0 or index >= len(items):
                     return f"Error: Index {index} out of range"
                 queue_item_id = items[index].queue_item_id
-            mass.player_queues.move_item(player_id, queue_item_id, position_shift)  # type: ignore[arg-type]
+            mass.player_queues.move_item(player_id, queue_item_id, position_shift)
             direction = "up" if position_shift < 0 else "down"
-            return f"Moved item {abs(position_shift)} position(s) {direction}"
+            return f"Moved item {abs(position_shift)} positions {direction}"
         except Exception as e:
             return f"Error: {e}"
 
@@ -189,11 +188,13 @@ def register_queue_delete_tools(mcp: FastMCP, mass: MusicAssistant) -> None:
         :param queue_item_id: The queue_item_id from get_queue output.
         :param index: Alternatively, the index of the item to remove (0-based).
         """
-        if queue_item_id is None and index is None:
-            return "Error: Must provide either queue_item_id or index"
         try:
-            item_id_or_index: str | int = queue_item_id if queue_item_id else index  # type: ignore[assignment]
-            mass.player_queues.delete_item(player_id, item_id_or_index)
+            if queue_item_id is not None:
+                mass.player_queues.delete_item(player_id, queue_item_id)
+            elif index is not None:
+                mass.player_queues.delete_item(player_id, index)
+            else:
+                return "Error: Must provide either queue_item_id or index"
             return "Removed item from queue"
         except Exception as e:
             return f"Error: {e}"

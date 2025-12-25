@@ -65,7 +65,7 @@ def register_library_resources(mcp: FastMCP, mass: MusicAssistant) -> None:
             return json.dumps({"error": str(e)})
 
     @mcp.resource("library://recently_played")
-    async def get_recently_played_resource() -> str:
+    async def get_recently_played() -> str:
         """Get recently played items from the library."""
         try:
             recently_played = await mass.music.recently_played(limit=30)
@@ -91,7 +91,7 @@ def register_library_resources(mcp: FastMCP, mass: MusicAssistant) -> None:
         return json.dumps({"providers": providers}, indent=2)
 
     @mcp.resource("library://podcasts")
-    async def get_library_podcasts_resource() -> str:
+    async def get_library_podcasts() -> str:
         """List all podcasts in the library."""
         try:
             podcasts = await mass.music.podcasts.library_items(limit=100)
@@ -109,7 +109,7 @@ def register_library_resources(mcp: FastMCP, mass: MusicAssistant) -> None:
             return json.dumps({"error": str(e)})
 
     @mcp.resource("library://audiobooks")
-    async def get_library_audiobooks_resource() -> str:
+    async def get_library_audiobooks() -> str:
         """List all audiobooks in the library."""
         try:
             audiobooks = await mass.music.audiobooks.library_items(limit=100)
@@ -127,7 +127,7 @@ def register_library_resources(mcp: FastMCP, mass: MusicAssistant) -> None:
             return json.dumps({"error": str(e)})
 
     @mcp.resource("library://radios")
-    async def get_library_radios_resource() -> str:
+    async def get_library_radios() -> str:
         """List all radio stations in the library."""
         try:
             radios = await mass.music.radio.library_items(limit=100)
