@@ -332,6 +332,7 @@ def mock_mass(  # noqa: PLR0913, PLR0915
     mass.music.playlists.create_playlist = AsyncMock(return_value=mock_playlist)
     mass.music.playlists.add_playlist_track = AsyncMock()
     mass.music.playlists.remove_playlist_tracks = AsyncMock()
+    mass.music.playlists.remove_item_from_library = AsyncMock()
 
     async def mock_playlist_tracks(*_args: Any, **_kwargs: Any) -> Any:
         yield mock_track

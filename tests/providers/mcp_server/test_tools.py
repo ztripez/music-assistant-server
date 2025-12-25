@@ -870,6 +870,40 @@ async def test_remove_from_playlist(mock_mass: Mock) -> None:
     mock_mass.music.playlists.remove_playlist_tracks.assert_called_once()
 
 
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_delete_playlist(mock_mass: Mock) -> None:
+    """Test delete_playlist tool."""
+    mcp = FastMCP("test")
+    _register_playlist_tools(mcp)
+
+    delete_tool = _get_tool(mcp, "delete_playlist")
+    assert delete_tool is not None
+    result = await delete_tool.fn(playlist_uri="library://playlist/101")
+    data = json.loads(result)
+    assert data["deleted"] is True
+    mock_mass.music.playlists.remove_item_from_library.assert_called_once()
+
+
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_clear_playlist(mock_mass: Mock, mock_track: Mock) -> None:
+    """Test clear_playlist tool."""
+    mcp = FastMCP("test")
+    _register_playlist_tools(mcp)
+
+    # Setup mock to yield tracks
+    async def mock_playlist_tracks(*_args: Any, **_kwargs: Any) -> Any:
+        yield mock_track
+        yield mock_track
+
+    mock_mass.music.playlists.tracks = mock_playlist_tracks
+
+    clear_tool = _get_tool(mcp, "clear_playlist")
+    assert clear_tool is not None
+    result = await clear_tool.fn(playlist_uri="library://playlist/101")
+    assert "cleared" in result.lower()
+    mock_mass.music.playlists.remove_playlist_tracks.assert_called()
+
+
 # =============================================================================
 # PODCAST TOOLS
 # =============================================================================

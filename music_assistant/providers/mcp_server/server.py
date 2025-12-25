@@ -1033,7 +1033,7 @@ def _register_library_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
 # =============================================================================
 
 
-def _register_playlist_tools(mcp: FastMCP) -> None:
+def _register_playlist_tools(mcp: FastMCP) -> None:  # noqa: PLR0915
     """Register playlist management tools."""
 
     @mcp.tool()
@@ -1151,6 +1151,60 @@ def _register_playlist_tools(mcp: FastMCP) -> None:
 
             await mass.music.playlists.remove_playlist_tracks(item_id, (position,))
             return f"Removed track at position {position} from playlist {playlist.name}"
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def delete_playlist(playlist_uri: str) -> str:
+        """Delete a playlist from the library.
+
+        :param playlist_uri: The URI of the playlist to delete.
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            playlist = await mass.music.get_item_by_uri(playlist_uri)
+            if not playlist:
+                return f"Error: Playlist not found: {playlist_uri}"
+
+            await mass.music.playlists.remove_item_from_library(playlist.item_id)
+            return json.dumps(
+                {"deleted": True, "name": playlist.name, "uri": playlist_uri},
+                indent=2,
+            )
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def clear_playlist(playlist_uri: str) -> str:
+        """Remove all tracks from a playlist.
+
+        :param playlist_uri: The URI of the playlist to clear.
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            from music_assistant.helpers.uri import parse_uri  # noqa: PLC0415
+
+            _, _, item_id = await parse_uri(playlist_uri)
+            playlist = await mass.music.get_item_by_uri(playlist_uri)
+            if not playlist:
+                return f"Error: Playlist not found: {playlist_uri}"
+
+            # Get all track positions
+            positions = []
+            idx = 0
+            async for _track in mass.music.playlists.tracks(item_id, playlist.provider):
+                positions.append(idx)
+                idx += 1
+
+            if not positions:
+                return f"Playlist {playlist.name} is already empty"
+
+            await mass.music.playlists.remove_playlist_tracks(item_id, tuple(positions))
+            return f"Cleared all {len(positions)} tracks from playlist {playlist.name}"
         except Exception as e:
             return f"Error: {e}"
 
