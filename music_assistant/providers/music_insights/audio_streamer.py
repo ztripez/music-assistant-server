@@ -136,7 +136,9 @@ class AudioStreamer:
 
         # Send when buffer is large enough to reduce HTTP overhead
         if len(session.buffer) >= self.min_buffer_bytes:
-            await self._send_frames(session)
+            if not await self._send_frames(session):
+                # Session no longer exists on sidecar, remove from local tracking
+                self._sessions.pop(queue_item_id, None)
 
     async def _start_session(
         self,
@@ -219,14 +221,15 @@ class AudioStreamer:
         self.logger.debug("Started stream session %s for track %s", session_id, track_id)
         return session
 
-    async def _send_frames(self, session: StreamSession) -> None:
+    async def _send_frames(self, session: StreamSession) -> bool:
         """
         Send buffered PCM frames to the sidecar.
 
         :param session: The streaming session.
+        :return: True if successful, False if session is invalid/gone.
         """
         if not self._http_session or not session.buffer:
-            return
+            return True
 
         # Extract buffer contents atomically
         async with self._send_lock:
@@ -240,18 +243,28 @@ class AudioStreamer:
                 data=data,
                 headers={"Content-Type": "application/octet-stream"},
             ) as resp:
-                if resp.status != 200:
-                    self.logger.debug(
-                        "Failed to send frames for session %s: %s",
-                        session.session_id,
-                        resp.status,
-                    )
-                else:
+                if resp.status == 200:
                     session.bytes_sent += len(data)
+                    return True
+                if resp.status == 404:
+                    # Session doesn't exist on sidecar anymore
+                    self.logger.debug(
+                        "Stream session %s no longer exists on sidecar",
+                        session.session_id,
+                    )
+                    return False
+                self.logger.debug(
+                    "Failed to send frames for session %s: %s",
+                    session.session_id,
+                    resp.status,
+                )
+                return True  # Non-404 errors are transient, keep trying
         except aiohttp.ClientError as err:
             self.logger.debug("Failed to send frames: %s", err)
+            return True  # Network errors are transient
         except Exception as err:
             self.logger.warning("Unexpected error sending frames: %s", err)
+            return True
 
     async def end_session_for_track(self, queue_item_id: str, store: bool = True) -> None:
         """
@@ -298,9 +311,16 @@ class AudioStreamer:
                         result.get("audio_stored", False),
                         result.get("duration_s", 0),
                     )
+                elif resp.status == 404:
+                    # Session doesn't exist on sidecar (maybe it restarted or timed out)
+                    # This is not an error - the session is effectively ended
+                    self.logger.debug(
+                        "Stream session %s not found on sidecar (already ended or expired)",
+                        session.session_id,
+                    )
                 else:
                     body = await _get_error_body(resp)
-                    self.logger.debug(
+                    self.logger.warning(
                         "Failed to end stream session %s: %s - %s",
                         session.session_id,
                         resp.status,
