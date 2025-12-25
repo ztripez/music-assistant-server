@@ -12,21 +12,131 @@ from .prompts import register_prompts
 from .resources import register_library_resources, register_player_resources
 from .tools import (
     register_audiobook_tools,
-    register_library_tools,
+    register_library_delete_tools,
+    register_library_edit_tools,
+    register_library_query_tools,
     register_metadata_tools,
-    register_playback_tools,
-    register_player_tools,
-    register_playlist_tools,
+    register_playback_control_tools,
+    register_playback_query_tools,
+    register_player_control_tools,
+    register_player_query_tools,
+    register_playlist_delete_tools,
+    register_playlist_edit_tools,
+    register_playlist_query_tools,
     register_podcast_tools,
-    register_queue_tools,
+    register_queue_control_tools,
+    register_queue_delete_tools,
+    register_queue_edit_tools,
+    register_queue_query_tools,
     register_radio_tools,
-    register_volume_tools,
+    register_volume_control_tools,
 )
 
 if TYPE_CHECKING:
     from music_assistant.mass import MusicAssistant
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _register_query_tools(
+    mcp: FastMCP,
+    mass: MusicAssistant,
+    features: dict[str, bool],
+    log: logging.Logger,
+) -> None:
+    """Register query tools based on feature flags."""
+    if features.get("library_query", True):
+        register_library_query_tools(mcp, mass)
+        register_playback_query_tools(mcp, mass)
+        register_podcast_tools(mcp, mass)
+        register_radio_tools(mcp, mass)
+        register_audiobook_tools(mcp, mass)
+        register_metadata_tools(mcp, mass)
+        log.debug("Registered library query tools")
+    if features.get("player_query", True):
+        register_player_query_tools(mcp, mass)
+        log.debug("Registered player query tools")
+    if features.get("queue_query", True):
+        register_queue_query_tools(mcp, mass)
+        log.debug("Registered queue query tools")
+    if features.get("playlist_query", True):
+        register_playlist_query_tools(mcp, mass)
+        log.debug("Registered playlist query tools")
+
+
+def _register_control_tools(
+    mcp: FastMCP,
+    mass: MusicAssistant,
+    features: dict[str, bool],
+    log: logging.Logger,
+) -> None:
+    """Register control tools based on feature flags."""
+    if features.get("playback_control", True):
+        register_playback_control_tools(mcp, mass)
+        log.debug("Registered playback control tools")
+    if features.get("volume_control", True):
+        register_volume_control_tools(mcp, mass)
+        log.debug("Registered volume control tools")
+    if features.get("player_control", True):
+        register_player_control_tools(mcp, mass)
+        log.debug("Registered player control tools")
+    if features.get("queue_control", True):
+        register_queue_control_tools(mcp, mass)
+        log.debug("Registered queue control tools")
+
+
+def _register_edit_tools(
+    mcp: FastMCP,
+    mass: MusicAssistant,
+    features: dict[str, bool],
+    log: logging.Logger,
+) -> None:
+    """Register edit tools based on feature flags."""
+    if features.get("library_edit", True):
+        register_library_edit_tools(mcp, mass)
+        log.debug("Registered library edit tools")
+    if features.get("playlist_edit", True):
+        register_playlist_edit_tools(mcp, mass)
+        log.debug("Registered playlist edit tools")
+    if features.get("queue_edit", True):
+        register_queue_edit_tools(mcp, mass)
+        log.debug("Registered queue edit tools")
+
+
+def _register_delete_tools(
+    mcp: FastMCP,
+    mass: MusicAssistant,
+    features: dict[str, bool],
+    log: logging.Logger,
+) -> None:
+    """Register delete tools based on feature flags."""
+    if features.get("library_delete", False):
+        register_library_delete_tools(mcp, mass)
+        log.debug("Registered library delete tools")
+    if features.get("playlist_delete", False):
+        register_playlist_delete_tools(mcp, mass)
+        log.debug("Registered playlist delete tools")
+    if features.get("queue_delete", True):
+        register_queue_delete_tools(mcp, mass)
+        log.debug("Registered queue delete tools")
+
+
+def _register_resources_and_prompts(
+    mcp: FastMCP,
+    mass: MusicAssistant,
+    features: dict[str, bool],
+    log: logging.Logger,
+) -> None:
+    """Register resources and prompts based on feature flags."""
+    if features.get("player_resources", True):
+        register_player_resources(mcp, mass)
+        log.debug("Registered player resources")
+    if features.get("library_resources", True):
+        register_library_resources(mcp, mass)
+        log.debug("Registered library resources")
+    if features.get("prompts", True):
+        register_prompts(mcp, mass)
+        log.debug("Registered prompts")
 
 
 def create_mcp_server(
@@ -79,42 +189,12 @@ def create_mcp_server(
     mcp = FastMCP(**server_kwargs)
     features = enabled_features or {}
 
-    # Register tools
-    if features.get("playback_tools", True):
-        register_playback_tools(mcp, mass)
-        log.debug("Registered playback tools")
-    if features.get("queue_tools", True):
-        register_queue_tools(mcp, mass)
-        log.debug("Registered queue tools")
-    if features.get("volume_tools", True):
-        register_volume_tools(mcp, mass)
-        log.debug("Registered volume tools")
-    if features.get("library_tools", True):
-        register_library_tools(mcp, mass)
-        register_podcast_tools(mcp, mass)
-        register_radio_tools(mcp, mass)
-        register_audiobook_tools(mcp, mass)
-        register_metadata_tools(mcp, mass)
-        log.debug("Registered library/podcast/radio/audiobook/metadata tools")
-    if features.get("playlist_tools", True):
-        register_playlist_tools(mcp, mass)
-        log.debug("Registered playlist tools")
-    if features.get("player_tools", True):
-        register_player_tools(mcp, mass)
-        log.debug("Registered player tools")
-
-    # Register resources
-    if features.get("player_resources", True):
-        register_player_resources(mcp, mass)
-        log.debug("Registered player resources")
-    if features.get("library_resources", True):
-        register_library_resources(mcp, mass)
-        log.debug("Registered library resources")
-
-    # Register prompts
-    if features.get("prompts", True):
-        register_prompts(mcp, mass)
-        log.debug("Registered prompts")
+    # Register all tools, resources, and prompts
+    _register_query_tools(mcp, mass, features, log)
+    _register_control_tools(mcp, mass, features, log)
+    _register_edit_tools(mcp, mass, features, log)
+    _register_delete_tools(mcp, mass, features, log)
+    _register_resources_and_prompts(mcp, mass, features, log)
 
     log.debug("MCP server instance created")
     return mcp

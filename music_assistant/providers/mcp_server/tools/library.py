@@ -27,8 +27,8 @@ EXTENDED_SORT_OPTIONS = (
 )
 
 
-def register_library_tools(mcp: FastMCP, mass: MusicAssistant) -> None:  # noqa: PLR0915
-    """Register library and discovery tools.
+def register_library_query_tools(mcp: FastMCP, mass: MusicAssistant) -> None:  # noqa: PLR0915
+    """Register library query tools.
 
     :param mcp: FastMCP server instance.
     :param mass: MusicAssistant instance.
@@ -203,66 +203,6 @@ def register_library_tools(mcp: FastMCP, mass: MusicAssistant) -> None:  # noqa:
             return f"Error: {e}"
 
     @mcp.tool()
-    async def add_to_library(uri: str) -> str:
-        """Add an item to the user's library.
-
-        :param uri: The URI of the item to add to library.
-        """
-        try:
-            await mass.music.add_item_to_library(uri)
-            return f"Added {uri} to library"
-        except Exception as e:
-            return f"Error: {e}"
-
-    @mcp.tool()
-    async def remove_from_library(uri: str) -> str:
-        """Remove an item from the user's library.
-
-        :param uri: The URI of the library item to remove (must be a library:// URI).
-        """
-        try:
-            from music_assistant.helpers.uri import parse_uri  # noqa: PLC0415
-
-            media_type, provider, item_id = await parse_uri(uri)
-            if provider != "library":
-                return "Error: Can only remove library items (use library:// URI)"
-
-            await mass.music.remove_item_from_library(media_type, item_id)
-            return f"Removed {uri} from library"
-        except Exception as e:
-            return f"Error: {e}"
-
-    @mcp.tool()
-    async def add_to_favorites(uri: str) -> str:
-        """Mark an item as favorite.
-
-        :param uri: The URI of the item to favorite.
-        """
-        try:
-            await mass.music.add_item_to_favorites(uri)
-            return f"Added {uri} to favorites"
-        except Exception as e:
-            return f"Error: {e}"
-
-    @mcp.tool()
-    async def remove_from_favorites(uri: str) -> str:
-        """Remove an item from favorites.
-
-        :param uri: The URI of the library item to unfavorite (must be a library:// URI).
-        """
-        try:
-            from music_assistant.helpers.uri import parse_uri  # noqa: PLC0415
-
-            media_type, provider, item_id = await parse_uri(uri)
-            if provider != "library":
-                return "Error: Can only unfavorite library items (use library:// URI)"
-
-            await mass.music.remove_item_from_favorites(media_type, item_id)
-            return f"Removed {uri} from favorites"
-        except Exception as e:
-            return f"Error: {e}"
-
-    @mcp.tool()
     async def get_library_artists(
         search: str = "",
         limit: int = 50,
@@ -359,5 +299,81 @@ def register_library_tools(mcp: FastMCP, mass: MusicAssistant) -> None:  # noqa:
             )
             output = [{"name": t.name, "uri": t.uri} for t in tracks]
             return json.dumps({"tracks": output}, indent=2)
+        except Exception as e:
+            return f"Error: {e}"
+
+
+def register_library_edit_tools(mcp: FastMCP, mass: MusicAssistant) -> None:
+    """Register library edit tools.
+
+    :param mcp: FastMCP server instance.
+    :param mass: MusicAssistant instance.
+    """
+
+    @mcp.tool()
+    async def add_to_library(uri: str) -> str:
+        """Add an item to the user's library.
+
+        :param uri: The URI of the item to add to library.
+        """
+        try:
+            await mass.music.add_item_to_library(uri)
+            return f"Added {uri} to library"
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def add_to_favorites(uri: str) -> str:
+        """Mark an item as favorite.
+
+        :param uri: The URI of the item to favorite.
+        """
+        try:
+            await mass.music.add_item_to_favorites(uri)
+            return f"Added {uri} to favorites"
+        except Exception as e:
+            return f"Error: {e}"
+
+
+def register_library_delete_tools(mcp: FastMCP, mass: MusicAssistant) -> None:
+    """Register library delete tools.
+
+    :param mcp: FastMCP server instance.
+    :param mass: MusicAssistant instance.
+    """
+
+    @mcp.tool()
+    async def remove_from_library(uri: str) -> str:
+        """Remove an item from the user's library.
+
+        :param uri: The URI of the library item to remove (must be a library:// URI).
+        """
+        try:
+            from music_assistant.helpers.uri import parse_uri  # noqa: PLC0415
+
+            media_type, provider, item_id = await parse_uri(uri)
+            if provider != "library":
+                return "Error: Can only remove library items (use library:// URI)"
+
+            await mass.music.remove_item_from_library(media_type, item_id)
+            return f"Removed {uri} from library"
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def remove_from_favorites(uri: str) -> str:
+        """Remove an item from favorites.
+
+        :param uri: The URI of the library item to unfavorite (must be a library:// URI).
+        """
+        try:
+            from music_assistant.helpers.uri import parse_uri  # noqa: PLC0415
+
+            media_type, provider, item_id = await parse_uri(uri)
+            if provider != "library":
+                return "Error: Can only unfavorite library items (use library:// URI)"
+
+            await mass.music.remove_item_from_favorites(media_type, item_id)
+            return f"Removed {uri} from favorites"
         except Exception as e:
             return f"Error: {e}"

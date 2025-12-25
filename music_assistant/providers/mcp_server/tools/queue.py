@@ -11,8 +11,8 @@ if TYPE_CHECKING:
     from music_assistant.mass import MusicAssistant
 
 
-def register_queue_tools(mcp: FastMCP, mass: MusicAssistant) -> None:  # noqa: PLR0915
-    """Register queue management tools.
+def register_queue_query_tools(mcp: FastMCP, mass: MusicAssistant) -> None:
+    """Register queue query tools.
 
     :param mcp: FastMCP server instance.
     :param mass: MusicAssistant instance.
@@ -50,17 +50,13 @@ def register_queue_tools(mcp: FastMCP, mass: MusicAssistant) -> None:  # noqa: P
         except Exception as e:
             return f"Error: {e}"
 
-    @mcp.tool()
-    async def clear_queue(player_id: str) -> str:
-        """Clear all items from a player's queue.
 
-        :param player_id: Player ID.
-        """
-        try:
-            mass.player_queues.clear(player_id)
-            return f"Queue cleared on {player_id}"
-        except Exception as e:
-            return f"Error: {e}"
+def register_queue_control_tools(mcp: FastMCP, mass: MusicAssistant) -> None:
+    """Register queue control tools.
+
+    :param mcp: FastMCP server instance.
+    :param mass: MusicAssistant instance.
+    """
 
     @mcp.tool()
     async def shuffle_queue(player_id: str, enabled: bool) -> str:
@@ -98,6 +94,43 @@ def register_queue_tools(mcp: FastMCP, mass: MusicAssistant) -> None:  # noqa: P
             return f"Error: {e}"
 
     @mcp.tool()
+    async def play_queue_index(player_id: str, index: int) -> str:
+        """Play a specific item in the queue by index.
+
+        :param player_id: Player ID.
+        :param index: The index of the item to play (0-based).
+        """
+        try:
+            await mass.player_queues.play_index(player_id, index)
+            return f"Playing queue item at index {index}"
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def transfer_queue(
+        source_player_id: str,
+        target_player_id: str,
+    ) -> str:
+        """Transfer a queue from one player to another.
+
+        :param source_player_id: The player to transfer from.
+        :param target_player_id: The player to transfer to.
+        """
+        try:
+            await mass.player_queues.transfer_queue(source_player_id, target_player_id)
+            return f"Queue transferred from {source_player_id} to {target_player_id}"
+        except Exception as e:
+            return f"Error: {e}"
+
+
+def register_queue_edit_tools(mcp: FastMCP, mass: MusicAssistant) -> None:
+    """Register queue edit tools.
+
+    :param mcp: FastMCP server instance.
+    :param mass: MusicAssistant instance.
+    """
+
+    @mcp.tool()
     async def move_queue_item(
         player_id: str,
         position_shift: int,
@@ -126,6 +159,26 @@ def register_queue_tools(mcp: FastMCP, mass: MusicAssistant) -> None:  # noqa: P
         except Exception as e:
             return f"Error: {e}"
 
+
+def register_queue_delete_tools(mcp: FastMCP, mass: MusicAssistant) -> None:
+    """Register queue delete tools.
+
+    :param mcp: FastMCP server instance.
+    :param mass: MusicAssistant instance.
+    """
+
+    @mcp.tool()
+    async def clear_queue(player_id: str) -> str:
+        """Clear all items from a player's queue.
+
+        :param player_id: Player ID.
+        """
+        try:
+            mass.player_queues.clear(player_id)
+            return f"Queue cleared on {player_id}"
+        except Exception as e:
+            return f"Error: {e}"
+
     @mcp.tool()
     async def remove_queue_item(
         player_id: str, queue_item_id: str | None = None, index: int | None = None
@@ -142,34 +195,5 @@ def register_queue_tools(mcp: FastMCP, mass: MusicAssistant) -> None:  # noqa: P
             item_id_or_index: str | int = queue_item_id if queue_item_id else index  # type: ignore[assignment]
             mass.player_queues.delete_item(player_id, item_id_or_index)
             return "Removed item from queue"
-        except Exception as e:
-            return f"Error: {e}"
-
-    @mcp.tool()
-    async def play_queue_index(player_id: str, index: int) -> str:
-        """Play a specific item in the queue by index.
-
-        :param player_id: Player ID.
-        :param index: The index of the item to play (0-based).
-        """
-        try:
-            await mass.player_queues.play_index(player_id, index)
-            return f"Playing queue item at index {index}"
-        except Exception as e:
-            return f"Error: {e}"
-
-    @mcp.tool()
-    async def transfer_queue(
-        source_player_id: str,
-        target_player_id: str,
-    ) -> str:
-        """Transfer a queue from one player to another.
-
-        :param source_player_id: The player to transfer from.
-        :param target_player_id: The player to transfer to.
-        """
-        try:
-            await mass.player_queues.transfer_queue(source_player_id, target_player_id)
-            return f"Queue transferred from {source_player_id} to {target_player_id}"
         except Exception as e:
             return f"Error: {e}"

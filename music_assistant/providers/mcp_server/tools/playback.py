@@ -11,7 +11,71 @@ if TYPE_CHECKING:
     from music_assistant.mass import MusicAssistant
 
 
-def register_playback_tools(mcp: FastMCP, mass: MusicAssistant) -> None:  # noqa: PLR0915
+def register_playback_query_tools(mcp: FastMCP, mass: MusicAssistant) -> None:
+    """Register playback query tools (search).
+
+    :param mcp: FastMCP server instance.
+    :param mass: MusicAssistant instance.
+    """
+
+    @mcp.tool()
+    async def search_music(
+        query: str,
+        media_types: str = "track,artist,album,playlist",
+        limit: int = 10,
+        library_only: bool = False,
+    ) -> str:
+        """Search for music. Returns items with URIs for play_media.
+
+        :param query: Search query.
+        :param media_types: Comma-separated: track, artist, album, playlist, radio.
+        :param limit: Max results per type.
+        :param library_only: Only search library, not streaming providers.
+        """
+        try:
+            from music_assistant_models.enums import MediaType  # noqa: PLC0415
+
+            types_map = {
+                "track": MediaType.TRACK,
+                "artist": MediaType.ARTIST,
+                "album": MediaType.ALBUM,
+                "playlist": MediaType.PLAYLIST,
+                "radio": MediaType.RADIO,
+                "podcast": MediaType.PODCAST,
+                "audiobook": MediaType.AUDIOBOOK,
+            }
+            search_types = [
+                types_map[t.strip().lower()]
+                for t in media_types.split(",")
+                if t.strip().lower() in types_map
+            ]
+
+            results = await mass.music.search(
+                search_query=query,
+                media_types=search_types,
+                limit=limit,
+                library_only=library_only,
+            )
+
+            output: dict[str, Any] = {"query": query, "results": {}}
+            for media_type, items in [
+                ("tracks", results.tracks),
+                ("artists", results.artists),
+                ("albums", results.albums),
+                ("playlists", results.playlists),
+                ("radio", results.radio),
+            ]:
+                if items:
+                    output["results"][media_type] = [
+                        {"name": item.name, "uri": item.uri} for item in items[:limit]
+                    ]
+
+            return json.dumps(output, indent=2)
+        except Exception as e:
+            return f"Error: {e}"
+
+
+def register_playback_control_tools(mcp: FastMCP, mass: MusicAssistant) -> None:
     """Register playback control tools.
 
     :param mcp: FastMCP server instance.
@@ -149,61 +213,5 @@ def register_playback_tools(mcp: FastMCP, mass: MusicAssistant) -> None:  # noqa
             )
             mode_str = " (radio mode)" if radio_mode else ""
             return f"Playing {uri} on {player_id}{mode_str}"
-        except Exception as e:
-            return f"Error: {e}"
-
-    @mcp.tool()
-    async def search_music(
-        query: str,
-        media_types: str = "track,artist,album,playlist",
-        limit: int = 10,
-        library_only: bool = False,
-    ) -> str:
-        """Search for music. Returns items with URIs for play_media.
-
-        :param query: Search query.
-        :param media_types: Comma-separated: track, artist, album, playlist, radio.
-        :param limit: Max results per type.
-        :param library_only: Only search library, not streaming providers.
-        """
-        try:
-            from music_assistant_models.enums import MediaType  # noqa: PLC0415
-
-            types_map = {
-                "track": MediaType.TRACK,
-                "artist": MediaType.ARTIST,
-                "album": MediaType.ALBUM,
-                "playlist": MediaType.PLAYLIST,
-                "radio": MediaType.RADIO,
-                "podcast": MediaType.PODCAST,
-                "audiobook": MediaType.AUDIOBOOK,
-            }
-            search_types = [
-                types_map[t.strip().lower()]
-                for t in media_types.split(",")
-                if t.strip().lower() in types_map
-            ]
-
-            results = await mass.music.search(
-                search_query=query,
-                media_types=search_types,
-                limit=limit,
-                library_only=library_only,
-            )
-
-            output: dict[str, Any] = {"query": query, "results": {}}
-            for media_type, items in [
-                ("tracks", results.tracks),
-                ("artists", results.artists),
-                ("albums", results.albums),
-                ("playlists", results.playlists),
-                ("radio", results.radio),
-            ]:
-                if items:
-                    output["results"][media_type] = [
-                        {"name": item.name, "uri": item.uri} for item in items[:limit]
-                    ]
-
-            return json.dumps(output, indent=2)
         except Exception as e:
             return f"Error: {e}"

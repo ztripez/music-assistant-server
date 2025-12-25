@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from music_assistant.mass import MusicAssistant
 
 
-def register_volume_tools(mcp: FastMCP, mass: MusicAssistant) -> None:
+def register_volume_control_tools(mcp: FastMCP, mass: MusicAssistant) -> None:
     """Register volume control tools.
 
     :param mcp: FastMCP server instance.

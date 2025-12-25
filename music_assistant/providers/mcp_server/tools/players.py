@@ -11,8 +11,44 @@ if TYPE_CHECKING:
     from music_assistant.mass import MusicAssistant
 
 
-def register_player_tools(mcp: FastMCP, mass: MusicAssistant) -> None:
-    """Register player management tools.
+def register_player_query_tools(mcp: FastMCP, mass: MusicAssistant) -> None:
+    """Register player query tools.
+
+    :param mcp: FastMCP server instance.
+    :param mass: MusicAssistant instance.
+    """
+
+    @mcp.tool()
+    async def get_player_by_name(name: str) -> str:
+        """Find a player by name, including its capabilities.
+
+        :param name: Full or partial player name.
+        """
+        try:
+            name_lower = name.lower()
+            matches = []
+            for player in mass.players.all():
+                if name_lower in player.display_name.lower():
+                    capabilities = [f.name.lower() for f in player.supported_features]
+                    matches.append(
+                        {
+                            "id": player.player_id,
+                            "name": player.display_name,
+                            "available": player.available,
+                            "state": player.playback_state.value,
+                            "capabilities": capabilities,
+                        }
+                    )
+
+            if not matches:
+                return f"No players found matching '{name}'"
+            return json.dumps({"matches": matches}, indent=2)
+        except Exception as e:
+            return f"Error: {e}"
+
+
+def register_player_control_tools(mcp: FastMCP, mass: MusicAssistant) -> None:
+    """Register player control tools.
 
     :param mcp: FastMCP server instance.
     :param mass: MusicAssistant instance.
@@ -76,33 +112,5 @@ def register_player_tools(mcp: FastMCP, mass: MusicAssistant) -> None:
         try:
             await mass.players.play_announcement(player_id, url, volume_level=volume)
             return f"Playing announcement on {player_id}"
-        except Exception as e:
-            return f"Error: {e}"
-
-    @mcp.tool()
-    async def get_player_by_name(name: str) -> str:
-        """Find a player by name, including its capabilities.
-
-        :param name: Full or partial player name.
-        """
-        try:
-            name_lower = name.lower()
-            matches = []
-            for player in mass.players.all():
-                if name_lower in player.display_name.lower():
-                    capabilities = [f.name.lower() for f in player.supported_features]
-                    matches.append(
-                        {
-                            "id": player.player_id,
-                            "name": player.display_name,
-                            "available": player.available,
-                            "state": player.playback_state.value,
-                            "capabilities": capabilities,
-                        }
-                    )
-
-            if not matches:
-                return f"No players found matching '{name}'"
-            return json.dumps({"matches": matches}, indent=2)
         except Exception as e:
             return f"Error: {e}"

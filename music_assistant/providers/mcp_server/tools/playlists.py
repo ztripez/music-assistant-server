@@ -13,8 +13,8 @@ if TYPE_CHECKING:
     from music_assistant.mass import MusicAssistant
 
 
-def register_playlist_tools(mcp: FastMCP, mass: MusicAssistant) -> None:  # noqa: PLR0915
-    """Register playlist management tools.
+def register_playlist_query_tools(mcp: FastMCP, mass: MusicAssistant) -> None:
+    """Register playlist query tools.
 
     :param mcp: FastMCP server instance.
     :param mass: MusicAssistant instance.
@@ -71,6 +71,14 @@ def register_playlist_tools(mcp: FastMCP, mass: MusicAssistant) -> None:  # noqa
         except Exception as e:
             return f"Error: {e}"
 
+
+def register_playlist_edit_tools(mcp: FastMCP, mass: MusicAssistant) -> None:
+    """Register playlist edit tools.
+
+    :param mcp: FastMCP server instance.
+    :param mass: MusicAssistant instance.
+    """
+
     @mcp.tool()
     async def create_playlist(name: str) -> str:
         """Create a new playlist.
@@ -102,6 +110,14 @@ def register_playlist_tools(mcp: FastMCP, mass: MusicAssistant) -> None:  # noqa
             return f"Added track to playlist {playlist.name}"
         except Exception as e:
             return f"Error: {e}"
+
+
+def register_playlist_delete_tools(mcp: FastMCP, mass: MusicAssistant) -> None:
+    """Register playlist delete tools.
+
+    :param mcp: FastMCP server instance.
+    :param mass: MusicAssistant instance.
+    """
 
     @mcp.tool()
     async def remove_from_playlist(playlist_uri: str, position: int) -> str:

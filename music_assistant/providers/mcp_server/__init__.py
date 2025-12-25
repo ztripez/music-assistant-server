@@ -26,16 +26,32 @@ if TYPE_CHECKING:
 CONF_PORT = "port"
 CONF_REQUIRE_AUTH = "require_auth"
 
-# Feature enable/disable keys
-CONF_ENABLE_PLAYBACK_TOOLS = "enable_playback_tools"
-CONF_ENABLE_QUEUE_TOOLS = "enable_queue_tools"
-CONF_ENABLE_VOLUME_TOOLS = "enable_volume_tools"
-CONF_ENABLE_LIBRARY_TOOLS = "enable_library_tools"
-CONF_ENABLE_PLAYLIST_TOOLS = "enable_playlist_tools"
-CONF_ENABLE_PLAYER_TOOLS = "enable_player_tools"
-CONF_ENABLE_PLAYER_RESOURCES = "enable_player_resources"
-CONF_ENABLE_LIBRARY_RESOURCES = "enable_library_resources"
-CONF_ENABLE_PROMPTS = "enable_prompts"
+# Query permissions (read-only)
+CONF_LIBRARY_QUERY = "library_query"
+CONF_PLAYER_QUERY = "player_query"
+CONF_QUEUE_QUERY = "queue_query"
+CONF_PLAYLIST_QUERY = "playlist_query"
+
+# Control/Act permissions
+CONF_PLAYBACK_CONTROL = "playback_control"
+CONF_VOLUME_CONTROL = "volume_control"
+CONF_PLAYER_CONTROL = "player_control"
+CONF_QUEUE_CONTROL = "queue_control"
+
+# Edit permissions
+CONF_LIBRARY_EDIT = "library_edit"
+CONF_PLAYLIST_EDIT = "playlist_edit"
+CONF_QUEUE_EDIT = "queue_edit"
+
+# Delete permissions
+CONF_LIBRARY_DELETE = "library_delete"
+CONF_PLAYLIST_DELETE = "playlist_delete"
+CONF_QUEUE_DELETE = "queue_delete"
+
+# Resources and prompts
+CONF_PLAYER_RESOURCES = "player_resources"
+CONF_LIBRARY_RESOURCES = "library_resources"
+CONF_PROMPTS = "prompts"
 
 # Default port for MCP server
 DEFAULT_PORT = 8096
@@ -108,85 +124,149 @@ async def get_config_entries(
             ),
             default_value=True,
         ),
-        # Feature toggles
+        # Query permissions (read-only)
         ConfigEntry(
-            key=CONF_ENABLE_PLAYBACK_TOOLS,
+            key=CONF_LIBRARY_QUERY,
             type=ConfigEntryType.BOOLEAN,
-            label="Enable Playback Tools",
-            description="Expose play, pause, stop, seek, skip, and media playback tools.",
-            default_value=True,
-            category="features",
-        ),
-        ConfigEntry(
-            key=CONF_ENABLE_QUEUE_TOOLS,
-            type=ConfigEntryType.BOOLEAN,
-            label="Enable Queue Tools",
-            description="Expose queue management tools (get, clear, shuffle, repeat, move items).",
-            default_value=True,
-            category="features",
-        ),
-        ConfigEntry(
-            key=CONF_ENABLE_VOLUME_TOOLS,
-            type=ConfigEntryType.BOOLEAN,
-            label="Enable Volume Tools",
-            description="Expose volume control tools (set, up, down, mute, group volume).",
-            default_value=True,
-            category="features",
-        ),
-        ConfigEntry(
-            key=CONF_ENABLE_LIBRARY_TOOLS,
-            type=ConfigEntryType.BOOLEAN,
-            label="Enable Library Tools",
+            label="Library Query",
             description=(
-                "Expose library tools (recommendations, recently played, browse, "
-                "artist/album tracks, favorites)."
+                "Search music, browse library, get recommendations, "
+                "recently played, similar tracks, artist/album details."
             ),
             default_value=True,
-            category="features",
+            category="query",
         ),
         ConfigEntry(
-            key=CONF_ENABLE_PLAYLIST_TOOLS,
+            key=CONF_PLAYER_QUERY,
             type=ConfigEntryType.BOOLEAN,
-            label="Enable Playlist Tools",
-            description="Expose playlist tools (get, create, add/remove tracks).",
+            label="Player Query",
+            description="Find players by name, get player capabilities.",
             default_value=True,
-            category="features",
+            category="query",
         ),
         ConfigEntry(
-            key=CONF_ENABLE_PLAYER_TOOLS,
+            key=CONF_QUEUE_QUERY,
             type=ConfigEntryType.BOOLEAN,
-            label="Enable Player Tools",
-            description="Expose player tools (power, grouping, announcements, find by name).",
+            label="Queue Query",
+            description="Get current queue items and state.",
             default_value=True,
-            category="features",
+            category="query",
         ),
         ConfigEntry(
-            key=CONF_ENABLE_PLAYER_RESOURCES,
+            key=CONF_PLAYLIST_QUERY,
             type=ConfigEntryType.BOOLEAN,
-            label="Enable Player Resources",
-            description=(
-                "Expose player resources (players list, player details, now playing, queue)."
-            ),
+            label="Playlist Query",
+            description="List playlists and get playlist tracks.",
             default_value=True,
-            category="features",
+            category="query",
         ),
+        # Control/Act permissions
         ConfigEntry(
-            key=CONF_ENABLE_LIBRARY_RESOURCES,
+            key=CONF_PLAYBACK_CONTROL,
             type=ConfigEntryType.BOOLEAN,
-            label="Enable Library Resources",
-            description=(
-                "Expose library resources (stats, favorites, recently played, providers)."
-            ),
+            label="Playback Control",
+            description="Play, pause, stop, seek, skip, next/previous track, play media.",
             default_value=True,
-            category="features",
+            category="control",
         ),
         ConfigEntry(
-            key=CONF_ENABLE_PROMPTS,
+            key=CONF_VOLUME_CONTROL,
             type=ConfigEntryType.BOOLEAN,
-            label="Enable Prompts",
+            label="Volume Control",
+            description="Set volume, volume up/down, mute, group volume.",
+            default_value=True,
+            category="control",
+        ),
+        ConfigEntry(
+            key=CONF_PLAYER_CONTROL,
+            type=ConfigEntryType.BOOLEAN,
+            label="Player Control",
+            description="Power on/off, group/ungroup players, play announcements.",
+            default_value=True,
+            category="control",
+        ),
+        ConfigEntry(
+            key=CONF_QUEUE_CONTROL,
+            type=ConfigEntryType.BOOLEAN,
+            label="Queue Control",
+            description="Shuffle, repeat mode, transfer queue, play specific index.",
+            default_value=True,
+            category="control",
+        ),
+        # Edit permissions
+        ConfigEntry(
+            key=CONF_LIBRARY_EDIT,
+            type=ConfigEntryType.BOOLEAN,
+            label="Library Edit",
+            description="Add items to library, mark as favorite.",
+            default_value=True,
+            category="edit",
+        ),
+        ConfigEntry(
+            key=CONF_PLAYLIST_EDIT,
+            type=ConfigEntryType.BOOLEAN,
+            label="Playlist Edit",
+            description="Create playlists, add tracks to playlists.",
+            default_value=True,
+            category="edit",
+        ),
+        ConfigEntry(
+            key=CONF_QUEUE_EDIT,
+            type=ConfigEntryType.BOOLEAN,
+            label="Queue Edit",
+            description="Move items in the queue.",
+            default_value=True,
+            category="edit",
+        ),
+        # Delete permissions
+        ConfigEntry(
+            key=CONF_LIBRARY_DELETE,
+            type=ConfigEntryType.BOOLEAN,
+            label="Library Delete",
+            description="Remove items from library, remove from favorites.",
+            default_value=False,
+            category="delete",
+        ),
+        ConfigEntry(
+            key=CONF_PLAYLIST_DELETE,
+            type=ConfigEntryType.BOOLEAN,
+            label="Playlist Delete",
+            description="Delete playlists, remove tracks, clear playlists.",
+            default_value=False,
+            category="delete",
+        ),
+        ConfigEntry(
+            key=CONF_QUEUE_DELETE,
+            type=ConfigEntryType.BOOLEAN,
+            label="Queue Delete",
+            description="Remove queue items, clear queue.",
+            default_value=True,
+            category="delete",
+        ),
+        # Resources
+        ConfigEntry(
+            key=CONF_PLAYER_RESOURCES,
+            type=ConfigEntryType.BOOLEAN,
+            label="Player Resources",
+            description="Expose player resources (list, details, now playing, queue).",
+            default_value=True,
+            category="resources",
+        ),
+        ConfigEntry(
+            key=CONF_LIBRARY_RESOURCES,
+            type=ConfigEntryType.BOOLEAN,
+            label="Library Resources",
+            description="Expose library resources (stats, favorites, recently played).",
+            default_value=True,
+            category="resources",
+        ),
+        ConfigEntry(
+            key=CONF_PROMPTS,
+            type=ConfigEntryType.BOOLEAN,
+            label="Prompts",
             description="Expose MCP prompts for AI assistant context.",
             default_value=True,
-            category="features",
+            category="resources",
         ),
     )
 
@@ -216,15 +296,28 @@ class MCPServerProvider(PluginProvider):
     def enabled_features(self) -> dict[str, bool]:
         """Return a dictionary of enabled feature flags."""
         return {
-            "playback_tools": bool(self.config.get_value(CONF_ENABLE_PLAYBACK_TOOLS)),
-            "queue_tools": bool(self.config.get_value(CONF_ENABLE_QUEUE_TOOLS)),
-            "volume_tools": bool(self.config.get_value(CONF_ENABLE_VOLUME_TOOLS)),
-            "library_tools": bool(self.config.get_value(CONF_ENABLE_LIBRARY_TOOLS)),
-            "playlist_tools": bool(self.config.get_value(CONF_ENABLE_PLAYLIST_TOOLS)),
-            "player_tools": bool(self.config.get_value(CONF_ENABLE_PLAYER_TOOLS)),
-            "player_resources": bool(self.config.get_value(CONF_ENABLE_PLAYER_RESOURCES)),
-            "library_resources": bool(self.config.get_value(CONF_ENABLE_LIBRARY_RESOURCES)),
-            "prompts": bool(self.config.get_value(CONF_ENABLE_PROMPTS)),
+            # Query
+            "library_query": bool(self.config.get_value(CONF_LIBRARY_QUERY)),
+            "player_query": bool(self.config.get_value(CONF_PLAYER_QUERY)),
+            "queue_query": bool(self.config.get_value(CONF_QUEUE_QUERY)),
+            "playlist_query": bool(self.config.get_value(CONF_PLAYLIST_QUERY)),
+            # Control
+            "playback_control": bool(self.config.get_value(CONF_PLAYBACK_CONTROL)),
+            "volume_control": bool(self.config.get_value(CONF_VOLUME_CONTROL)),
+            "player_control": bool(self.config.get_value(CONF_PLAYER_CONTROL)),
+            "queue_control": bool(self.config.get_value(CONF_QUEUE_CONTROL)),
+            # Edit
+            "library_edit": bool(self.config.get_value(CONF_LIBRARY_EDIT)),
+            "playlist_edit": bool(self.config.get_value(CONF_PLAYLIST_EDIT)),
+            "queue_edit": bool(self.config.get_value(CONF_QUEUE_EDIT)),
+            # Delete
+            "library_delete": bool(self.config.get_value(CONF_LIBRARY_DELETE)),
+            "playlist_delete": bool(self.config.get_value(CONF_PLAYLIST_DELETE)),
+            "queue_delete": bool(self.config.get_value(CONF_QUEUE_DELETE)),
+            # Resources
+            "player_resources": bool(self.config.get_value(CONF_PLAYER_RESOURCES)),
+            "library_resources": bool(self.config.get_value(CONF_LIBRARY_RESOURCES)),
+            "prompts": bool(self.config.get_value(CONF_PROMPTS)),
         }
 
     async def loaded_in_mass(self) -> None:

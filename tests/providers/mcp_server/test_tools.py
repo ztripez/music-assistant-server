@@ -9,12 +9,21 @@ from unittest.mock import AsyncMock, Mock
 from mcp.server.fastmcp import FastMCP
 
 from music_assistant.providers.mcp_server.tools import (
-    register_library_tools,
-    register_playback_tools,
-    register_player_tools,
-    register_playlist_tools,
-    register_queue_tools,
-    register_volume_tools,
+    register_library_delete_tools,
+    register_library_edit_tools,
+    register_library_query_tools,
+    register_playback_control_tools,
+    register_playback_query_tools,
+    register_player_control_tools,
+    register_player_query_tools,
+    register_playlist_delete_tools,
+    register_playlist_edit_tools,
+    register_playlist_query_tools,
+    register_queue_control_tools,
+    register_queue_delete_tools,
+    register_queue_edit_tools,
+    register_queue_query_tools,
+    register_volume_control_tools,
 )
 from music_assistant.providers.mcp_server.tools.media import (
     register_audiobook_tools,
@@ -40,7 +49,7 @@ def _get_tool(mcp: FastMCP, name: str) -> Any:
 async def test_play(mock_mass: Mock) -> None:
     """Test play tool."""
     mcp = FastMCP("test")
-    register_playback_tools(mcp, mock_mass)
+    register_playback_control_tools(mcp, mock_mass)
 
     play_tool = _get_tool(mcp, "play")
     assert play_tool is not None
@@ -52,7 +61,7 @@ async def test_play(mock_mass: Mock) -> None:
 async def test_pause(mock_mass: Mock) -> None:
     """Test pause tool."""
     mcp = FastMCP("test")
-    register_playback_tools(mcp, mock_mass)
+    register_playback_control_tools(mcp, mock_mass)
 
     pause_tool = _get_tool(mcp, "pause")
     assert pause_tool is not None
@@ -64,7 +73,7 @@ async def test_pause(mock_mass: Mock) -> None:
 async def test_stop(mock_mass: Mock) -> None:
     """Test stop tool."""
     mcp = FastMCP("test")
-    register_playback_tools(mcp, mock_mass)
+    register_playback_control_tools(mcp, mock_mass)
 
     stop_tool = _get_tool(mcp, "stop")
     assert stop_tool is not None
@@ -76,7 +85,7 @@ async def test_stop(mock_mass: Mock) -> None:
 async def test_next_track(mock_mass: Mock) -> None:
     """Test next_track tool."""
     mcp = FastMCP("test")
-    register_playback_tools(mcp, mock_mass)
+    register_playback_control_tools(mcp, mock_mass)
 
     next_tool = _get_tool(mcp, "next_track")
     assert next_tool is not None
@@ -88,7 +97,7 @@ async def test_next_track(mock_mass: Mock) -> None:
 async def test_previous_track(mock_mass: Mock) -> None:
     """Test previous_track tool."""
     mcp = FastMCP("test")
-    register_playback_tools(mcp, mock_mass)
+    register_playback_control_tools(mcp, mock_mass)
 
     prev_tool = _get_tool(mcp, "previous_track")
     assert prev_tool is not None
@@ -100,7 +109,7 @@ async def test_previous_track(mock_mass: Mock) -> None:
 async def test_seek(mock_mass: Mock) -> None:
     """Test seek tool."""
     mcp = FastMCP("test")
-    register_playback_tools(mcp, mock_mass)
+    register_playback_control_tools(mcp, mock_mass)
 
     seek_tool = _get_tool(mcp, "seek")
     assert seek_tool is not None
@@ -112,7 +121,7 @@ async def test_seek(mock_mass: Mock) -> None:
 async def test_skip_forward(mock_mass: Mock) -> None:
     """Test skip_forward tool."""
     mcp = FastMCP("test")
-    register_playback_tools(mcp, mock_mass)
+    register_playback_control_tools(mcp, mock_mass)
 
     skip_tool = _get_tool(mcp, "skip_forward")
     assert skip_tool is not None
@@ -124,7 +133,7 @@ async def test_skip_forward(mock_mass: Mock) -> None:
 async def test_skip_backward(mock_mass: Mock) -> None:
     """Test skip_backward tool."""
     mcp = FastMCP("test")
-    register_playback_tools(mcp, mock_mass)
+    register_playback_control_tools(mcp, mock_mass)
 
     skip_tool = _get_tool(mcp, "skip_backward")
     assert skip_tool is not None
@@ -136,7 +145,7 @@ async def test_skip_backward(mock_mass: Mock) -> None:
 async def test_play_media(mock_mass: Mock) -> None:
     """Test play_media tool."""
     mcp = FastMCP("test")
-    register_playback_tools(mcp, mock_mass)
+    register_playback_control_tools(mcp, mock_mass)
 
     play_media_tool = _get_tool(mcp, "play_media")
     assert play_media_tool is not None
@@ -150,7 +159,7 @@ async def test_play_media(mock_mass: Mock) -> None:
 async def test_search_music(mock_mass: Mock) -> None:
     """Test search_music tool."""
     mcp = FastMCP("test")
-    register_playback_tools(mcp, mock_mass)
+    register_playback_query_tools(mcp, mock_mass)
 
     search_tool = _get_tool(mcp, "search_music")
     assert search_tool is not None
@@ -173,7 +182,7 @@ async def test_search_music(mock_mass: Mock) -> None:
 async def test_get_queue(mock_mass: Mock) -> None:
     """Test get_queue tool."""
     mcp = FastMCP("test")
-    register_queue_tools(mcp, mock_mass)
+    register_queue_query_tools(mcp, mock_mass)
 
     queue_tool = _get_tool(mcp, "get_queue")
     assert queue_tool is not None
@@ -190,7 +199,7 @@ async def test_get_queue(mock_mass: Mock) -> None:
 async def test_clear_queue(mock_mass: Mock) -> None:
     """Test clear_queue tool."""
     mcp = FastMCP("test")
-    register_queue_tools(mcp, mock_mass)
+    register_queue_delete_tools(mcp, mock_mass)
 
     clear_tool = _get_tool(mcp, "clear_queue")
     assert clear_tool is not None
@@ -202,7 +211,7 @@ async def test_clear_queue(mock_mass: Mock) -> None:
 async def test_shuffle_queue(mock_mass: Mock) -> None:
     """Test shuffle_queue tool."""
     mcp = FastMCP("test")
-    register_queue_tools(mcp, mock_mass)
+    register_queue_control_tools(mcp, mock_mass)
 
     shuffle_tool = _get_tool(mcp, "shuffle_queue")
     assert shuffle_tool is not None
@@ -214,7 +223,7 @@ async def test_shuffle_queue(mock_mass: Mock) -> None:
 async def test_repeat_queue(mock_mass: Mock) -> None:
     """Test repeat_queue tool."""
     mcp = FastMCP("test")
-    register_queue_tools(mcp, mock_mass)
+    register_queue_control_tools(mcp, mock_mass)
 
     repeat_tool = _get_tool(mcp, "repeat_queue")
     assert repeat_tool is not None
@@ -226,7 +235,7 @@ async def test_repeat_queue(mock_mass: Mock) -> None:
 async def test_transfer_queue(mock_mass: Mock) -> None:
     """Test transfer_queue tool."""
     mcp = FastMCP("test")
-    register_queue_tools(mcp, mock_mass)
+    register_queue_control_tools(mcp, mock_mass)
 
     transfer_tool = _get_tool(mcp, "transfer_queue")
     assert transfer_tool is not None
@@ -238,7 +247,7 @@ async def test_transfer_queue(mock_mass: Mock) -> None:
 async def test_move_queue_item(mock_mass: Mock) -> None:
     """Test move_queue_item tool."""
     mcp = FastMCP("test")
-    register_queue_tools(mcp, mock_mass)
+    register_queue_edit_tools(mcp, mock_mass)
 
     move_tool = _get_tool(mcp, "move_queue_item")
     assert move_tool is not None
@@ -250,7 +259,7 @@ async def test_move_queue_item(mock_mass: Mock) -> None:
 async def test_move_queue_item_down(mock_mass: Mock) -> None:
     """Test move_queue_item tool moving down."""
     mcp = FastMCP("test")
-    register_queue_tools(mcp, mock_mass)
+    register_queue_edit_tools(mcp, mock_mass)
 
     move_tool = _get_tool(mcp, "move_queue_item")
     assert move_tool is not None
@@ -262,7 +271,7 @@ async def test_move_queue_item_down(mock_mass: Mock) -> None:
 async def test_remove_queue_item(mock_mass: Mock) -> None:
     """Test remove_queue_item tool."""
     mcp = FastMCP("test")
-    register_queue_tools(mcp, mock_mass)
+    register_queue_delete_tools(mcp, mock_mass)
 
     remove_tool = _get_tool(mcp, "remove_queue_item")
     assert remove_tool is not None
@@ -274,7 +283,7 @@ async def test_remove_queue_item(mock_mass: Mock) -> None:
 async def test_play_queue_index(mock_mass: Mock) -> None:
     """Test play_queue_index tool."""
     mcp = FastMCP("test")
-    register_queue_tools(mcp, mock_mass)
+    register_queue_control_tools(mcp, mock_mass)
 
     play_idx_tool = _get_tool(mcp, "play_queue_index")
     assert play_idx_tool is not None
@@ -291,7 +300,7 @@ async def test_play_queue_index(mock_mass: Mock) -> None:
 async def test_set_volume(mock_mass: Mock) -> None:
     """Test set_volume tool."""
     mcp = FastMCP("test")
-    register_volume_tools(mcp, mock_mass)
+    register_volume_control_tools(mcp, mock_mass)
 
     vol_tool = _get_tool(mcp, "set_volume")
     assert vol_tool is not None
@@ -303,7 +312,7 @@ async def test_set_volume(mock_mass: Mock) -> None:
 async def test_set_volume_clamped(mock_mass: Mock) -> None:
     """Test set_volume clamps values to 0-100."""
     mcp = FastMCP("test")
-    register_volume_tools(mcp, mock_mass)
+    register_volume_control_tools(mcp, mock_mass)
 
     vol_tool = _get_tool(mcp, "set_volume")
     assert vol_tool is not None
@@ -314,7 +323,7 @@ async def test_set_volume_clamped(mock_mass: Mock) -> None:
 async def test_volume_up(mock_mass: Mock) -> None:
     """Test volume_up tool."""
     mcp = FastMCP("test")
-    register_volume_tools(mcp, mock_mass)
+    register_volume_control_tools(mcp, mock_mass)
 
     vol_tool = _get_tool(mcp, "volume_up")
     assert vol_tool is not None
@@ -326,7 +335,7 @@ async def test_volume_up(mock_mass: Mock) -> None:
 async def test_volume_down(mock_mass: Mock) -> None:
     """Test volume_down tool."""
     mcp = FastMCP("test")
-    register_volume_tools(mcp, mock_mass)
+    register_volume_control_tools(mcp, mock_mass)
 
     vol_tool = _get_tool(mcp, "volume_down")
     assert vol_tool is not None
@@ -338,7 +347,7 @@ async def test_volume_down(mock_mass: Mock) -> None:
 async def test_mute(mock_mass: Mock) -> None:
     """Test mute tool."""
     mcp = FastMCP("test")
-    register_volume_tools(mcp, mock_mass)
+    register_volume_control_tools(mcp, mock_mass)
 
     mute_tool = _get_tool(mcp, "mute")
     assert mute_tool is not None
@@ -350,7 +359,7 @@ async def test_mute(mock_mass: Mock) -> None:
 async def test_set_group_volume(mock_mass: Mock) -> None:
     """Test set_group_volume tool."""
     mcp = FastMCP("test")
-    register_volume_tools(mcp, mock_mass)
+    register_volume_control_tools(mcp, mock_mass)
 
     vol_tool = _get_tool(mcp, "set_group_volume")
     assert vol_tool is not None
@@ -363,7 +372,7 @@ async def test_set_group_volume(mock_mass: Mock) -> None:
 async def test_set_group_volume_clamped(mock_mass: Mock) -> None:
     """Test set_group_volume clamps values to 0-100."""
     mcp = FastMCP("test")
-    register_volume_tools(mcp, mock_mass)
+    register_volume_control_tools(mcp, mock_mass)
 
     vol_tool = _get_tool(mcp, "set_group_volume")
     assert vol_tool is not None
@@ -379,7 +388,7 @@ async def test_set_group_volume_clamped(mock_mass: Mock) -> None:
 async def test_power_player(mock_mass: Mock) -> None:
     """Test power_player tool."""
     mcp = FastMCP("test")
-    register_player_tools(mcp, mock_mass)
+    register_player_control_tools(mcp, mock_mass)
 
     power_tool = _get_tool(mcp, "power_player")
     assert power_tool is not None
@@ -391,7 +400,7 @@ async def test_power_player(mock_mass: Mock) -> None:
 async def test_group_players(mock_mass: Mock) -> None:
     """Test group_players tool."""
     mcp = FastMCP("test")
-    register_player_tools(mcp, mock_mass)
+    register_player_control_tools(mcp, mock_mass)
 
     group_tool = _get_tool(mcp, "group_players")
     assert group_tool is not None
@@ -403,7 +412,7 @@ async def test_group_players(mock_mass: Mock) -> None:
 async def test_ungroup_player(mock_mass: Mock) -> None:
     """Test ungroup_player tool."""
     mcp = FastMCP("test")
-    register_player_tools(mcp, mock_mass)
+    register_player_control_tools(mcp, mock_mass)
 
     ungroup_tool = _get_tool(mcp, "ungroup_player")
     assert ungroup_tool is not None
@@ -415,7 +424,7 @@ async def test_ungroup_player(mock_mass: Mock) -> None:
 async def test_get_player_by_name(mock_mass: Mock) -> None:
     """Test get_player_by_name tool."""
     mcp = FastMCP("test")
-    register_player_tools(mcp, mock_mass)
+    register_player_query_tools(mcp, mock_mass)
 
     find_tool = _get_tool(mcp, "get_player_by_name")
     assert find_tool is not None
@@ -429,7 +438,7 @@ async def test_get_player_by_name(mock_mass: Mock) -> None:
 async def test_play_announcement(mock_mass: Mock) -> None:
     """Test play_announcement tool."""
     mcp = FastMCP("test")
-    register_player_tools(mcp, mock_mass)
+    register_player_control_tools(mcp, mock_mass)
 
     announce_tool = _get_tool(mcp, "play_announcement")
     assert announce_tool is not None
@@ -450,7 +459,7 @@ async def test_play_announcement(mock_mass: Mock) -> None:
 async def test_get_recently_played(mock_mass: Mock) -> None:
     """Test get_recently_played tool."""
     mcp = FastMCP("test")
-    register_library_tools(mcp, mock_mass)
+    register_library_query_tools(mcp, mock_mass)
 
     recent_tool = _get_tool(mcp, "get_recently_played")
     assert recent_tool is not None
@@ -463,7 +472,7 @@ async def test_get_recently_played(mock_mass: Mock) -> None:
 async def test_browse_library(mock_mass: Mock) -> None:
     """Test browse_library tool."""
     mcp = FastMCP("test")
-    register_library_tools(mcp, mock_mass)
+    register_library_query_tools(mcp, mock_mass)
 
     browse_tool = _get_tool(mcp, "browse_library")
     assert browse_tool is not None
@@ -476,7 +485,7 @@ async def test_browse_library(mock_mass: Mock) -> None:
 async def test_get_in_progress_items(mock_mass: Mock) -> None:
     """Test get_in_progress_items tool."""
     mcp = FastMCP("test")
-    register_library_tools(mcp, mock_mass)
+    register_library_query_tools(mcp, mock_mass)
 
     in_progress_tool = _get_tool(mcp, "get_in_progress_items")
     assert in_progress_tool is not None
@@ -489,7 +498,7 @@ async def test_get_in_progress_items(mock_mass: Mock) -> None:
 async def test_add_to_favorites(mock_mass: Mock) -> None:
     """Test add_to_favorites tool."""
     mcp = FastMCP("test")
-    register_library_tools(mcp, mock_mass)
+    register_library_edit_tools(mcp, mock_mass)
 
     fav_tool = _get_tool(mcp, "add_to_favorites")
     assert fav_tool is not None
@@ -501,7 +510,7 @@ async def test_add_to_favorites(mock_mass: Mock) -> None:
 async def test_remove_from_favorites(mock_mass: Mock) -> None:
     """Test remove_from_favorites tool."""
     mcp = FastMCP("test")
-    register_library_tools(mcp, mock_mass)
+    register_library_delete_tools(mcp, mock_mass)
 
     fav_tool = _get_tool(mcp, "remove_from_favorites")
     assert fav_tool is not None
@@ -513,7 +522,7 @@ async def test_remove_from_favorites(mock_mass: Mock) -> None:
 async def test_get_recommendations(mock_mass: Mock) -> None:
     """Test get_recommendations tool."""
     mcp = FastMCP("test")
-    register_library_tools(mcp, mock_mass)
+    register_library_query_tools(mcp, mock_mass)
 
     rec_tool = _get_tool(mcp, "get_recommendations")
     assert rec_tool is not None
@@ -526,7 +535,7 @@ async def test_get_recommendations(mock_mass: Mock) -> None:
 async def test_get_recently_added(mock_mass: Mock) -> None:
     """Test get_recently_added tool."""
     mcp = FastMCP("test")
-    register_library_tools(mcp, mock_mass)
+    register_library_query_tools(mcp, mock_mass)
 
     recent_tool = _get_tool(mcp, "get_recently_added")
     assert recent_tool is not None
@@ -539,7 +548,7 @@ async def test_get_recently_added(mock_mass: Mock) -> None:
 async def test_get_similar_tracks(mock_mass: Mock) -> None:
     """Test get_similar_tracks tool."""
     mcp = FastMCP("test")
-    register_library_tools(mcp, mock_mass)
+    register_library_query_tools(mcp, mock_mass)
 
     similar_tool = _get_tool(mcp, "get_similar_tracks")
     assert similar_tool is not None
@@ -552,7 +561,7 @@ async def test_get_similar_tracks(mock_mass: Mock) -> None:
 async def test_get_artist_tracks(mock_mass: Mock) -> None:
     """Test get_artist_tracks tool."""
     mcp = FastMCP("test")
-    register_library_tools(mcp, mock_mass)
+    register_library_query_tools(mcp, mock_mass)
 
     artist_tool = _get_tool(mcp, "get_artist_tracks")
     assert artist_tool is not None
@@ -565,7 +574,7 @@ async def test_get_artist_tracks(mock_mass: Mock) -> None:
 async def test_get_artist_albums(mock_mass: Mock) -> None:
     """Test get_artist_albums tool."""
     mcp = FastMCP("test")
-    register_library_tools(mcp, mock_mass)
+    register_library_query_tools(mcp, mock_mass)
 
     artist_tool = _get_tool(mcp, "get_artist_albums")
     assert artist_tool is not None
@@ -578,7 +587,7 @@ async def test_get_artist_albums(mock_mass: Mock) -> None:
 async def test_get_album_tracks(mock_mass: Mock) -> None:
     """Test get_album_tracks tool."""
     mcp = FastMCP("test")
-    register_library_tools(mcp, mock_mass)
+    register_library_query_tools(mcp, mock_mass)
 
     album_tool = _get_tool(mcp, "get_album_tracks")
     assert album_tool is not None
@@ -591,7 +600,7 @@ async def test_get_album_tracks(mock_mass: Mock) -> None:
 async def test_add_to_library(mock_mass: Mock) -> None:
     """Test add_to_library tool."""
     mcp = FastMCP("test")
-    register_library_tools(mcp, mock_mass)
+    register_library_edit_tools(mcp, mock_mass)
 
     lib_tool = _get_tool(mcp, "add_to_library")
     assert lib_tool is not None
@@ -603,7 +612,7 @@ async def test_add_to_library(mock_mass: Mock) -> None:
 async def test_remove_from_library(mock_mass: Mock) -> None:
     """Test remove_from_library tool."""
     mcp = FastMCP("test")
-    register_library_tools(mcp, mock_mass)
+    register_library_delete_tools(mcp, mock_mass)
 
     lib_tool = _get_tool(mcp, "remove_from_library")
     assert lib_tool is not None
@@ -615,7 +624,7 @@ async def test_remove_from_library(mock_mass: Mock) -> None:
 async def test_get_library_artists(mock_mass: Mock) -> None:
     """Test get_library_artists tool."""
     mcp = FastMCP("test")
-    register_library_tools(mcp, mock_mass)
+    register_library_query_tools(mcp, mock_mass)
 
     lib_tool = _get_tool(mcp, "get_library_artists")
     assert lib_tool is not None
@@ -628,7 +637,7 @@ async def test_get_library_artists(mock_mass: Mock) -> None:
 async def test_get_library_albums(mock_mass: Mock) -> None:
     """Test get_library_albums tool."""
     mcp = FastMCP("test")
-    register_library_tools(mcp, mock_mass)
+    register_library_query_tools(mcp, mock_mass)
 
     lib_tool = _get_tool(mcp, "get_library_albums")
     assert lib_tool is not None
@@ -641,7 +650,7 @@ async def test_get_library_albums(mock_mass: Mock) -> None:
 async def test_get_library_tracks(mock_mass: Mock) -> None:
     """Test get_library_tracks tool."""
     mcp = FastMCP("test")
-    register_library_tools(mcp, mock_mass)
+    register_library_query_tools(mcp, mock_mass)
 
     lib_tool = _get_tool(mcp, "get_library_tracks")
     assert lib_tool is not None
@@ -659,7 +668,7 @@ async def test_get_library_tracks(mock_mass: Mock) -> None:
 async def test_get_library_tracks_with_order_by(mock_mass: Mock) -> None:
     """Test get_library_tracks with order_by parameter."""
     mcp = FastMCP("test")
-    register_library_tools(mcp, mock_mass)
+    register_library_query_tools(mcp, mock_mass)
 
     tool = _get_tool(mcp, "get_library_tracks")
     assert tool is not None
@@ -678,7 +687,7 @@ async def test_get_library_tracks_with_order_by(mock_mass: Mock) -> None:
 async def test_get_library_tracks_with_provider(mock_mass: Mock) -> None:
     """Test get_library_tracks with provider filter."""
     mcp = FastMCP("test")
-    register_library_tools(mcp, mock_mass)
+    register_library_query_tools(mcp, mock_mass)
 
     tool = _get_tool(mcp, "get_library_tracks")
     assert tool is not None
@@ -697,7 +706,7 @@ async def test_get_library_tracks_with_provider(mock_mass: Mock) -> None:
 async def test_get_library_tracks_invalid_order_by(mock_mass: Mock) -> None:
     """Test get_library_tracks with invalid order_by returns error."""
     mcp = FastMCP("test")
-    register_library_tools(mcp, mock_mass)
+    register_library_query_tools(mcp, mock_mass)
 
     tool = _get_tool(mcp, "get_library_tracks")
     assert tool is not None
@@ -709,7 +718,7 @@ async def test_get_library_tracks_invalid_order_by(mock_mass: Mock) -> None:
 async def test_get_library_albums_with_sorting(mock_mass: Mock) -> None:
     """Test get_library_albums with extended sort options."""
     mcp = FastMCP("test")
-    register_library_tools(mcp, mock_mass)
+    register_library_query_tools(mcp, mock_mass)
 
     tool = _get_tool(mcp, "get_library_albums")
     assert tool is not None
@@ -728,7 +737,7 @@ async def test_get_library_albums_with_sorting(mock_mass: Mock) -> None:
 async def test_get_library_artists_with_provider(mock_mass: Mock) -> None:
     """Test get_library_artists with provider filter."""
     mcp = FastMCP("test")
-    register_library_tools(mcp, mock_mass)
+    register_library_query_tools(mcp, mock_mass)
 
     tool = _get_tool(mcp, "get_library_artists")
     assert tool is not None
@@ -752,7 +761,7 @@ async def test_get_library_artists_with_provider(mock_mass: Mock) -> None:
 async def test_get_playlists(mock_mass: Mock) -> None:
     """Test get_playlists tool."""
     mcp = FastMCP("test")
-    register_playlist_tools(mcp, mock_mass)
+    register_playlist_query_tools(mcp, mock_mass)
 
     pl_tool = _get_tool(mcp, "get_playlists")
     assert pl_tool is not None
@@ -765,7 +774,7 @@ async def test_get_playlists(mock_mass: Mock) -> None:
 async def test_create_playlist(mock_mass: Mock) -> None:
     """Test create_playlist tool."""
     mcp = FastMCP("test")
-    register_playlist_tools(mcp, mock_mass)
+    register_playlist_edit_tools(mcp, mock_mass)
 
     create_tool = _get_tool(mcp, "create_playlist")
     assert create_tool is not None
@@ -778,7 +787,7 @@ async def test_create_playlist(mock_mass: Mock) -> None:
 async def test_get_playlist_tracks(mock_mass: Mock) -> None:
     """Test get_playlist_tracks tool."""
     mcp = FastMCP("test")
-    register_playlist_tools(mcp, mock_mass)
+    register_playlist_query_tools(mcp, mock_mass)
 
     pl_tool = _get_tool(mcp, "get_playlist_tracks")
     assert pl_tool is not None
@@ -792,7 +801,7 @@ async def test_get_playlist_tracks(mock_mass: Mock) -> None:
 async def test_add_to_playlist(mock_mass: Mock) -> None:
     """Test add_to_playlist tool."""
     mcp = FastMCP("test")
-    register_playlist_tools(mcp, mock_mass)
+    register_playlist_edit_tools(mcp, mock_mass)
 
     add_tool = _get_tool(mcp, "add_to_playlist")
     assert add_tool is not None
@@ -806,7 +815,7 @@ async def test_add_to_playlist(mock_mass: Mock) -> None:
 async def test_remove_from_playlist(mock_mass: Mock) -> None:
     """Test remove_from_playlist tool."""
     mcp = FastMCP("test")
-    register_playlist_tools(mcp, mock_mass)
+    register_playlist_delete_tools(mcp, mock_mass)
 
     remove_tool = _get_tool(mcp, "remove_from_playlist")
     assert remove_tool is not None
@@ -818,7 +827,7 @@ async def test_remove_from_playlist(mock_mass: Mock) -> None:
 async def test_delete_playlist(mock_mass: Mock) -> None:
     """Test delete_playlist tool."""
     mcp = FastMCP("test")
-    register_playlist_tools(mcp, mock_mass)
+    register_playlist_delete_tools(mcp, mock_mass)
 
     delete_tool = _get_tool(mcp, "delete_playlist")
     assert delete_tool is not None
@@ -831,7 +840,7 @@ async def test_delete_playlist(mock_mass: Mock) -> None:
 async def test_clear_playlist(mock_mass: Mock, mock_track: Mock) -> None:
     """Test clear_playlist tool."""
     mcp = FastMCP("test")
-    register_playlist_tools(mcp, mock_mass)
+    register_playlist_delete_tools(mcp, mock_mass)
 
     # Setup mock to yield tracks
     async def mock_playlist_tracks(*_args: Any, **_kwargs: Any) -> Any:
