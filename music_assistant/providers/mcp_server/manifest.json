@@ -1,0 +1,10 @@
+{
+  "type": "plugin",
+  "domain": "mcp_server",
+  "name": "MCP Server",
+  "description": "Model Context Protocol (MCP) server for AI assistant integration. Enables LLMs to control playback, query music library, and interact with speakers.",
+  "codeowners": ["@ztripez"],
+  "requirements": ["mcp==1.25.0", "uvicorn==0.40.0"],
+  "documentation": "https://github.com/ztripez/music-assistant-server/issues/11",
+  "icon": "robot"
+}
