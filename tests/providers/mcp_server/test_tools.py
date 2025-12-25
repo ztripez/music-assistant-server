@@ -954,6 +954,45 @@ async def test_play_radio_station(mock_mass: Mock) -> None:
 
 
 # =============================================================================
+# METADATA TOOLS
+# =============================================================================
+
+
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_get_track_lyrics(mock_mass: Mock) -> None:  # noqa: ARG001
+    """Test get_track_lyrics tool."""
+    from music_assistant.providers.mcp_server.server import (  # noqa: PLC0415
+        _register_metadata_tools,
+    )
+
+    mcp = FastMCP("test")
+    _register_metadata_tools(mcp)
+
+    tool = _get_tool(mcp, "get_track_lyrics")
+    assert tool is not None
+    result = await tool.fn(track_uri="library://track/123")
+    assert "lyrics" in result.lower()
+    assert "Test lyrics" in result
+
+
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_get_item_artwork(mock_mass: Mock) -> None:  # noqa: ARG001
+    """Test get_item_artwork tool."""
+    from music_assistant.providers.mcp_server.server import (  # noqa: PLC0415
+        _register_metadata_tools,
+    )
+
+    mcp = FastMCP("test")
+    _register_metadata_tools(mcp)
+
+    tool = _get_tool(mcp, "get_item_artwork")
+    assert tool is not None
+    result = await tool.fn(uri="library://track/123")
+    assert "thumbnail" in result
+    assert "example.com" in result
+
+
+# =============================================================================
 # ERROR HANDLING
 # =============================================================================
 

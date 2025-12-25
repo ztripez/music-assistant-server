@@ -88,12 +88,14 @@ def mock_queue(mock_queue_item: Mock) -> Mock:
 @pytest.fixture
 def mock_track() -> Mock:
     """Create a mock track."""
+    from music_assistant_models.enums import MediaType  # noqa: PLC0415
+
     track = Mock(spec=["name", "uri", "item_id", "provider", "media_type", "track_number"])
     track.name = "Test Track"
     track.uri = "library://track/123"
     track.item_id = "123"
     track.provider = "library"
-    track.media_type = Mock(value="track")
+    track.media_type = MediaType.TRACK
     track.track_number = 1
     return track
 
@@ -354,6 +356,12 @@ def mock_mass(  # noqa: PLR0913, PLR0915
 
     # Add library_count for podcasts
     mass.music.podcasts.library_count = AsyncMock(return_value=3)
+
+    # Metadata controller
+    mass.metadata.get_track_lyrics = AsyncMock(
+        return_value=("Test lyrics line 1\nTest lyrics line 2", None)
+    )
+    mass.metadata.get_image_url_for_item = AsyncMock(return_value="https://example.com/image.jpg")
 
     return mass
 
