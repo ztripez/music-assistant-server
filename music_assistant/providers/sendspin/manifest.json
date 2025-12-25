@@ -9,5 +9,5 @@
   "credits": ["[Sendspin](https://sendspin-audio.com)"],
   "requirements": ["aiosendspin==1.1.4"],
   "builtin": true,
-  "allow_disable": true
+  "allow_disable": false
 }
