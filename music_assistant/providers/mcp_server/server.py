@@ -81,6 +81,7 @@ def create_mcp_server(
     if features.get("library_tools", True):
         _register_library_tools(mcp)
         _register_podcast_tools(mcp)
+        _register_radio_tools(mcp)
         _register_audiobook_tools(mcp)
     if features.get("playlist_tools", True):
         _register_playlist_tools(mcp)
@@ -1165,6 +1166,68 @@ def _register_podcast_tools(mcp: FastMCP) -> None:
 
 
 # =============================================================================
+# RADIO TOOLS
+# =============================================================================
+
+
+def _register_radio_tools(mcp: FastMCP) -> None:
+    """Register radio station tools."""
+
+    @mcp.tool()
+    async def get_library_radios(search: str = "", limit: int = 50) -> str:
+        """Get radio stations from the library.
+
+        :param search: Optional search filter.
+        :param limit: Maximum number of radio stations.
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            radios = await mass.music.radio.library_items(
+                search=search or None,
+                limit=limit,
+            )
+            output = [
+                {
+                    "name": r.name,
+                    "uri": r.uri,
+                    "favorite": r.favorite,
+                }
+                for r in radios
+            ]
+            return json.dumps({"radios": output}, indent=2)
+        except Exception as e:
+            return f"Error: {e}"
+
+    @mcp.tool()
+    async def play_radio_station(player_id: str, radio_uri: str) -> str:
+        """Play a radio station on a player.
+
+        :param player_id: Player ID from players:// resource.
+        :param radio_uri: The URI of the radio station to play.
+        """
+        mass = _get_mass()
+        if mass is None:
+            return "Error: Music Assistant not initialized"
+        try:
+            from music_assistant_models.enums import QueueOption  # noqa: PLC0415
+
+            radio = await mass.music.get_item_by_uri(radio_uri)
+            if not radio:
+                return f"Error: Radio station not found: {radio_uri}"
+
+            await mass.player_queues.play_media(
+                queue_id=player_id,
+                media=radio_uri,
+                option=QueueOption.PLAY,
+            )
+            return f"Playing radio station '{radio.name}' on {player_id}"
+        except Exception as e:
+            return f"Error: {e}"
+
+
+# =============================================================================
 # AUDIOBOOK TOOLS
 # =============================================================================
 
@@ -1549,7 +1612,7 @@ def _register_player_resources(mcp: FastMCP) -> None:
 # =============================================================================
 
 
-def _register_library_resources(mcp: FastMCP) -> None:
+def _register_library_resources(mcp: FastMCP) -> None:  # noqa: PLR0915
     """Register library-related MCP resources."""
 
     @mcp.resource("library://stats")
@@ -1565,6 +1628,9 @@ def _register_library_resources(mcp: FastMCP) -> None:
                 "albums": await mass.music.albums.library_count(),
                 "tracks": await mass.music.tracks.library_count(),
                 "playlists": await mass.music.playlists.library_count(),
+                "podcasts": await mass.music.podcasts.library_count(),
+                "audiobooks": await mass.music.audiobooks.library_count(),
+                "radios": await mass.music.radio.library_count(),
             }
             return json.dumps({"library_stats": stats}, indent=2)
         except Exception as e:
@@ -1636,6 +1702,71 @@ def _register_library_resources(mcp: FastMCP) -> None:
             )
 
         return json.dumps({"providers": providers}, indent=2)
+
+    @mcp.resource("library://podcasts")
+    async def get_library_podcasts_resource() -> str:
+        """List all podcasts in the library."""
+        mass = _get_mass()
+        if mass is None:
+            return json.dumps({"error": "Music Assistant not initialized"})
+
+        try:
+            podcasts = await mass.music.podcasts.library_items(limit=100)
+            items = [
+                {
+                    "name": p.name,
+                    "uri": p.uri,
+                    "publisher": getattr(p, "publisher", None),
+                    "total_episodes": getattr(p, "total_episodes", None),
+                }
+                for p in podcasts
+            ]
+            return json.dumps({"podcasts": items}, indent=2)
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    @mcp.resource("library://audiobooks")
+    async def get_library_audiobooks_resource() -> str:
+        """List all audiobooks in the library."""
+        mass = _get_mass()
+        if mass is None:
+            return json.dumps({"error": "Music Assistant not initialized"})
+
+        try:
+            audiobooks = await mass.music.audiobooks.library_items(limit=100)
+            items = [
+                {
+                    "name": ab.name,
+                    "uri": ab.uri,
+                    "authors": getattr(ab, "authors", []),
+                    "narrators": getattr(ab, "narrators", []),
+                }
+                for ab in audiobooks
+            ]
+            return json.dumps({"audiobooks": items}, indent=2)
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    @mcp.resource("library://radios")
+    async def get_library_radios_resource() -> str:
+        """List all radio stations in the library."""
+        mass = _get_mass()
+        if mass is None:
+            return json.dumps({"error": "Music Assistant not initialized"})
+
+        try:
+            radios = await mass.music.radio.library_items(limit=100)
+            items = [
+                {
+                    "name": r.name,
+                    "uri": r.uri,
+                    "favorite": r.favorite,
+                }
+                for r in radios
+            ]
+            return json.dumps({"radios": items}, indent=2)
+        except Exception as e:
+            return json.dumps({"error": str(e)})
 
 
 # =============================================================================

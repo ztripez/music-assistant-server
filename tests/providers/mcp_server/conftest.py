@@ -132,6 +132,18 @@ def mock_playlist() -> Mock:
 
 
 @pytest.fixture
+def mock_radio() -> Mock:
+    """Create a mock radio station."""
+    radio = Mock(spec=["name", "uri", "item_id", "provider", "favorite"])
+    radio.name = "Test Radio"
+    radio.uri = "library://radio/501"
+    radio.item_id = "501"
+    radio.provider = "library"
+    radio.favorite = True
+    return radio
+
+
+@pytest.fixture
 def mock_podcast() -> Mock:
     """Create a mock podcast."""
     podcast = Mock(spec=["name", "uri", "item_id", "provider", "publisher", "total_episodes"])
@@ -244,6 +256,7 @@ def mock_mass(  # noqa: PLR0913, PLR0915
     mock_artist: Mock,
     mock_album: Mock,
     mock_playlist: Mock,
+    mock_radio: Mock,
     mock_podcast: Mock,
     mock_podcast_episode: Mock,
     mock_audiobook: Mock,
@@ -333,6 +346,14 @@ def mock_mass(  # noqa: PLR0913, PLR0915
 
     # Audiobooks controller
     mass.music.audiobooks.library_items = AsyncMock(return_value=[mock_audiobook])
+    mass.music.audiobooks.library_count = AsyncMock(return_value=5)
+
+    # Radio controller
+    mass.music.radio.library_items = AsyncMock(return_value=[mock_radio])
+    mass.music.radio.library_count = AsyncMock(return_value=10)
+
+    # Add library_count for podcasts
+    mass.music.podcasts.library_count = AsyncMock(return_value=3)
 
     return mass
 

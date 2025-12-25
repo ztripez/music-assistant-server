@@ -912,6 +912,48 @@ async def test_play_audiobook_with_chapter(mock_mass: Mock) -> None:
 
 
 # =============================================================================
+# RADIO TOOLS
+# =============================================================================
+
+
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_get_library_radios(mock_mass: Mock) -> None:  # noqa: ARG001
+    """Test get_library_radios tool."""
+    from music_assistant.providers.mcp_server.server import (  # noqa: PLC0415
+        _register_radio_tools,
+    )
+
+    mcp = FastMCP("test")
+    _register_radio_tools(mcp)
+
+    tool = _get_tool(mcp, "get_library_radios")
+    assert tool is not None
+    result = await tool.fn()
+    assert "radios" in result
+    assert "Test Radio" in result
+
+
+@pytest.mark.usefixtures("setup_mcp_state")
+async def test_play_radio_station(mock_mass: Mock) -> None:
+    """Test play_radio_station tool."""
+    from music_assistant.providers.mcp_server.server import (  # noqa: PLC0415
+        _register_radio_tools,
+    )
+
+    mcp = FastMCP("test")
+    _register_radio_tools(mcp)
+
+    play_tool = _get_tool(mcp, "play_radio_station")
+    assert play_tool is not None
+    result = await play_tool.fn(
+        player_id="player_1",
+        radio_uri="library://radio/501",
+    )
+    assert "playing" in result.lower()
+    mock_mass.player_queues.play_media.assert_called()
+
+
+# =============================================================================
 # ERROR HANDLING
 # =============================================================================
 
