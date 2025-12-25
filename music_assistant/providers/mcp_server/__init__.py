@@ -101,18 +101,25 @@ async def get_config_entries(
     )
 
     return (
+        # Connection info alert
         ConfigEntry(
             key="connection_info",
-            type=ConfigEntryType.LABEL,
+            type=ConfigEntryType.ALERT,
             label=connection_info,
+            required=False,
+        ),
+        # Server settings divider
+        ConfigEntry(
+            key="server_settings_divider",
+            type=ConfigEntryType.DIVIDER,
+            label="Server Settings",
         ),
         ConfigEntry(
             key=CONF_PORT,
             type=ConfigEntryType.INTEGER,
             label="Port",
-            description="Port number for the MCP server.",
+            description="Port number for the MCP server (1024-65535).",
             default_value=DEFAULT_PORT,
-            range=(1024, 65535),
         ),
         ConfigEntry(
             key=CONF_REQUIRE_AUTH,
@@ -124,7 +131,13 @@ async def get_config_entries(
             ),
             default_value=True,
         ),
-        # Query permissions (read-only)
+        # Query permissions divider
+        ConfigEntry(
+            key="query_divider",
+            type=ConfigEntryType.DIVIDER,
+            label="Query Permissions (Read-Only)",
+            description="Allow AI assistants to query and browse data.",
+        ),
         ConfigEntry(
             key=CONF_LIBRARY_QUERY,
             type=ConfigEntryType.BOOLEAN,
@@ -160,7 +173,13 @@ async def get_config_entries(
             default_value=True,
             category="query",
         ),
-        # Control/Act permissions
+        # Control permissions divider
+        ConfigEntry(
+            key="control_divider",
+            type=ConfigEntryType.DIVIDER,
+            label="Control Permissions",
+            description="Allow AI assistants to control playback and players.",
+        ),
         ConfigEntry(
             key=CONF_PLAYBACK_CONTROL,
             type=ConfigEntryType.BOOLEAN,
@@ -193,7 +212,13 @@ async def get_config_entries(
             default_value=True,
             category="control",
         ),
-        # Edit permissions
+        # Edit permissions divider
+        ConfigEntry(
+            key="edit_divider",
+            type=ConfigEntryType.DIVIDER,
+            label="Edit Permissions",
+            description="Allow AI assistants to modify library and playlists.",
+        ),
         ConfigEntry(
             key=CONF_LIBRARY_EDIT,
             type=ConfigEntryType.BOOLEAN,
@@ -218,7 +243,13 @@ async def get_config_entries(
             default_value=True,
             category="edit",
         ),
-        # Delete permissions
+        # Delete permissions divider
+        ConfigEntry(
+            key="delete_divider",
+            type=ConfigEntryType.DIVIDER,
+            label="Delete Permissions",
+            description="Allow AI assistants to delete items. Disabled by default for safety.",
+        ),
         ConfigEntry(
             key=CONF_LIBRARY_DELETE,
             type=ConfigEntryType.BOOLEAN,
@@ -243,7 +274,13 @@ async def get_config_entries(
             default_value=True,
             category="delete",
         ),
-        # Resources
+        # Resources divider
+        ConfigEntry(
+            key="resources_divider",
+            type=ConfigEntryType.DIVIDER,
+            label="MCP Resources & Prompts",
+            description="Expose data resources and prompts for AI context.",
+        ),
         ConfigEntry(
             key=CONF_PLAYER_RESOURCES,
             type=ConfigEntryType.BOOLEAN,
