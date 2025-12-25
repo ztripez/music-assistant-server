@@ -369,25 +369,6 @@ def mock_mass(  # noqa: PLR0913, PLR0915
 
 
 @pytest.fixture
-def setup_mcp_state(mock_mass: Mock) -> None:
-    """Set up MCP module state for testing tools directly."""
-    from music_assistant.providers.mcp_server import server  # noqa: PLC0415
-
-    server._state["mass"] = mock_mass
-    server._state["enabled_features"] = {
-        "playback_tools": True,
-        "queue_tools": True,
-        "volume_tools": True,
-        "library_tools": True,
-        "playlist_tools": True,
-        "player_tools": True,
-        "player_resources": True,
-        "library_resources": True,
-        "prompts": True,
-    }
-
-
-@pytest.fixture
 def mcp_server(mock_mass: Mock) -> FastMCP:
     """Create MCP server with mocked MusicAssistant."""
     from music_assistant.providers.mcp_server.server import create_mcp_server  # noqa: PLC0415

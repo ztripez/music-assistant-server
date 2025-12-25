@@ -6,13 +6,11 @@ import json
 from typing import Any
 from unittest.mock import Mock
 
-import pytest
 from mcp.server.fastmcp import FastMCP
 
-from music_assistant.providers.mcp_server import server
-from music_assistant.providers.mcp_server.server import (
-    _register_library_resources,
-    _register_player_resources,
+from music_assistant.providers.mcp_server.resources import (
+    register_library_resources,
+    register_player_resources,
 )
 
 
@@ -37,11 +35,10 @@ def _get_template(mcp: FastMCP, uri_contains: str) -> Any:
 # =============================================================================
 
 
-@pytest.mark.usefixtures("setup_mcp_state")
-async def test_list_players_resource() -> None:
+async def test_list_players_resource(mock_mass: Mock) -> None:
     """Test players:// resource."""
     mcp = FastMCP("test")
-    _register_player_resources(mcp)
+    register_player_resources(mcp, mock_mass)
 
     list_players = _get_resource(mcp, "players://")
     assert list_players is not None
@@ -53,11 +50,10 @@ async def test_list_players_resource() -> None:
     assert data["players"][1]["name"] == "Kitchen"
 
 
-@pytest.mark.usefixtures("setup_mcp_state")
-async def test_get_player_resource() -> None:
+async def test_get_player_resource(mock_mass: Mock) -> None:
     """Test player://{player_id} resource."""
     mcp = FastMCP("test")
-    _register_player_resources(mcp)
+    register_player_resources(mcp, mock_mass)
 
     get_player = _get_template(mcp, "player://")
     assert get_player is not None
@@ -68,11 +64,10 @@ async def test_get_player_resource() -> None:
     assert data["player"]["volume"] == 50
 
 
-@pytest.mark.usefixtures("setup_mcp_state")
-async def test_now_playing_resource() -> None:
+async def test_now_playing_resource(mock_mass: Mock) -> None:
     """Test nowplaying://{player_id} resource."""
     mcp = FastMCP("test")
-    _register_player_resources(mcp)
+    register_player_resources(mcp, mock_mass)
 
     now_playing = _get_template(mcp, "nowplaying://")
     assert now_playing is not None
@@ -82,11 +77,10 @@ async def test_now_playing_resource() -> None:
     assert data["now_playing"]["name"] == "Test Track"
 
 
-@pytest.mark.usefixtures("setup_mcp_state")
-async def test_queue_resource() -> None:
+async def test_queue_resource(mock_mass: Mock) -> None:
     """Test queue://{player_id} resource."""
     mcp = FastMCP("test")
-    _register_player_resources(mcp)
+    register_player_resources(mcp, mock_mass)
 
     queue_resource = _get_template(mcp, "queue://")
     assert queue_resource is not None
@@ -101,11 +95,10 @@ async def test_queue_resource() -> None:
 # =============================================================================
 
 
-@pytest.mark.usefixtures("setup_mcp_state")
-async def test_library_stats_resource() -> None:
+async def test_library_stats_resource(mock_mass: Mock) -> None:
     """Test library://stats resource."""
     mcp = FastMCP("test")
-    _register_library_resources(mcp)
+    register_library_resources(mcp, mock_mass)
 
     stats_resource = _get_resource(mcp, "library://stats")
     assert stats_resource is not None
@@ -117,11 +110,10 @@ async def test_library_stats_resource() -> None:
     assert data["library_stats"]["tracks"] == 500
 
 
-@pytest.mark.usefixtures("setup_mcp_state")
-async def test_favorites_resource() -> None:
+async def test_favorites_resource(mock_mass: Mock) -> None:
     """Test library://favorites resource."""
     mcp = FastMCP("test")
-    _register_library_resources(mcp)
+    register_library_resources(mcp, mock_mass)
 
     fav_resource = _get_resource(mcp, "library://favorites")
     assert fav_resource is not None
@@ -133,11 +125,10 @@ async def test_favorites_resource() -> None:
     assert "tracks" in data["favorites"]
 
 
-@pytest.mark.usefixtures("setup_mcp_state")
 async def test_recently_played_resource(mock_mass: Mock) -> None:
     """Test library://recently_played resource."""
     mcp = FastMCP("test")
-    _register_library_resources(mcp)
+    register_library_resources(mcp, mock_mass)
 
     recent_resource = _get_resource(mcp, "library://recently_played")
     assert recent_resource is not None
@@ -147,11 +138,10 @@ async def test_recently_played_resource(mock_mass: Mock) -> None:
     mock_mass.music.recently_played.assert_called()
 
 
-@pytest.mark.usefixtures("setup_mcp_state")
-async def test_providers_resource() -> None:
+async def test_providers_resource(mock_mass: Mock) -> None:
     """Test providers:// resource."""
     mcp = FastMCP("test")
-    _register_library_resources(mcp)
+    register_library_resources(mcp, mock_mass)
 
     providers_resource = _get_resource(mcp, "providers://")
     assert providers_resource is not None
@@ -160,22 +150,3 @@ async def test_providers_resource() -> None:
     assert "providers" in data
     assert len(data["providers"]) == 1
     assert data["providers"][0]["name"] == "Spotify"
-
-
-# =============================================================================
-# ERROR HANDLING
-# =============================================================================
-
-
-async def test_resource_without_mass_initialized() -> None:
-    """Test resources return error when MusicAssistant not initialized."""
-    server._state["mass"] = None
-
-    mcp = FastMCP("test")
-    _register_player_resources(mcp)
-
-    list_players = _get_resource(mcp, "players://")
-    assert list_players is not None
-    result = await list_players.fn()
-    data = json.loads(result)
-    assert "error" in data

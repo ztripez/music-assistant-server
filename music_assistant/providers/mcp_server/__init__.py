@@ -39,8 +39,8 @@ CONF_ENABLE_PLAYER_RESOURCES = "enable_player_resources"
 CONF_ENABLE_LIBRARY_RESOURCES = "enable_library_resources"
 CONF_ENABLE_PROMPTS = "enable_prompts"
 
-# Default values
-DEFAULT_MCP_PORT = 8096
+# Default port for MCP server
+DEFAULT_PORT = 8096
 
 SUPPORTED_FEATURES: set[object] = set()
 
@@ -63,12 +63,10 @@ async def get_config_entries(
         ConfigEntry(
             key=CONF_PORT,
             type=ConfigEntryType.INTEGER,
-            label="MCP Server Port",
-            description=(
-                "The TCP port for the MCP server. Clients connect via http://host:port/mcp"
-            ),
-            default_value=DEFAULT_MCP_PORT,
-            required=True,
+            label="Port",
+            description="Port number for the MCP server.",
+            default_value=DEFAULT_PORT,
+            range=(1024, 65535),
         ),
         ConfigEntry(
             key=CONF_REQUIRE_AUTH,
@@ -167,15 +165,14 @@ class MCPServerProvider(PluginProvider):
     """MCP Server provider for Music Assistant."""
 
     _server_task: asyncio.Task[None] | None = None
-    _shutdown_event: asyncio.Event | None = None
 
     @property
     def port(self) -> int:
-        """Return the configured MCP server port."""
-        port_value = self.config.get_value(CONF_PORT)
-        if isinstance(port_value, int):
-            return port_value
-        return DEFAULT_MCP_PORT
+        """Return the configured port."""
+        value = self.config.get_value(CONF_PORT)
+        if isinstance(value, int):
+            return value
+        return DEFAULT_PORT
 
     @property
     def require_auth(self) -> bool:
@@ -199,35 +196,23 @@ class MCPServerProvider(PluginProvider):
 
     async def loaded_in_mass(self) -> None:
         """Call after the provider has been loaded."""
-        from .server import start_mcp_server  # noqa: PLC0415
+        from .server import run_mcp_server  # noqa: PLC0415
 
-        self.logger.info("Starting MCP server on port %s", self.port)
-        self._server_task, self._shutdown_event = await start_mcp_server(
+        self._server_task = await run_mcp_server(
             mass=self.mass,
+            host="0.0.0.0",
             port=self.port,
             require_auth=self.require_auth,
             enabled_features=self.enabled_features,
-            logger=self.logger,
         )
-        self.logger.info(
-            "MCP server started. Connect via http://%s:%s/mcp",
-            self.mass.webserver.base_url.split("://")[1].split(":")[0],
-            self.port,
-        )
+
+        self.logger.info("MCP server available at http://0.0.0.0:%d/mcp", self.port)
 
     async def unload(self, is_removed: bool = False) -> None:
         """Handle unload/close of the provider."""
-        if self._shutdown_event is not None:
-            self._shutdown_event.set()
-        if self._server_task is not None:
-            # Wait briefly for graceful shutdown, then cancel
-            try:
-                await asyncio.wait_for(self._server_task, timeout=3.0)
-            except (TimeoutError, asyncio.CancelledError):
-                self._server_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await self._server_task
-            except RuntimeError:
-                # Event loop may be closing, just cancel
-                self._server_task.cancel()
+        if self._server_task and not self._server_task.done():
+            self._server_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._server_task
+            self._server_task = None
         self.logger.info("MCP server stopped")

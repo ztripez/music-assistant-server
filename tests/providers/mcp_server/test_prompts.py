@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import Mock
 
-import pytest
 from mcp.server.fastmcp import FastMCP
 
-from music_assistant.providers.mcp_server.server import _register_prompts
+from music_assistant.providers.mcp_server.prompts import register_prompts
 
 
 def _get_prompt(mcp: FastMCP, name: str) -> Any:
@@ -23,11 +23,10 @@ def _get_prompt(mcp: FastMCP, name: str) -> Any:
 # =============================================================================
 
 
-@pytest.mark.usefixtures("setup_mcp_state")
-async def test_play_music_prompt() -> None:
+async def test_play_music_prompt(mock_mass: Mock) -> None:
     """Test play_music prompt."""
     mcp = FastMCP("test")
-    _register_prompts(mcp)
+    register_prompts(mcp, mock_mass)
 
     play_prompt = _get_prompt(mcp, "play_music")
     assert play_prompt is not None
@@ -36,11 +35,10 @@ async def test_play_music_prompt() -> None:
     assert "Living Room" in result
 
 
-@pytest.mark.usefixtures("setup_mcp_state")
-async def test_play_music_prompt_with_players_list() -> None:
+async def test_play_music_prompt_with_players_list(mock_mass: Mock) -> None:
     """Test play_music prompt includes available players."""
     mcp = FastMCP("test")
-    _register_prompts(mcp)
+    register_prompts(mcp, mock_mass)
 
     play_prompt = _get_prompt(mcp, "play_music")
     assert play_prompt is not None
@@ -49,11 +47,10 @@ async def test_play_music_prompt_with_players_list() -> None:
     assert "Living Room" in result
 
 
-@pytest.mark.usefixtures("setup_mcp_state")
-async def test_whats_playing_prompt() -> None:
+async def test_whats_playing_prompt(mock_mass: Mock) -> None:
     """Test whats_playing prompt."""
     mcp = FastMCP("test")
-    _register_prompts(mcp)
+    register_prompts(mcp, mock_mass)
 
     whats_prompt = _get_prompt(mcp, "whats_playing")
     assert whats_prompt is not None
@@ -61,11 +58,10 @@ async def test_whats_playing_prompt() -> None:
     assert "Living Room" in result
 
 
-@pytest.mark.usefixtures("setup_mcp_state")
-async def test_whats_playing_prompt_shows_current_track() -> None:
+async def test_whats_playing_prompt_shows_current_track(mock_mass: Mock) -> None:
     """Test whats_playing prompt shows current track when player specified."""
     mcp = FastMCP("test")
-    _register_prompts(mcp)
+    register_prompts(mcp, mock_mass)
 
     whats_prompt = _get_prompt(mcp, "whats_playing")
     assert whats_prompt is not None
@@ -73,11 +69,10 @@ async def test_whats_playing_prompt_shows_current_track() -> None:
     assert "Test Track" in result
 
 
-@pytest.mark.usefixtures("setup_mcp_state")
-async def test_control_playback_prompt() -> None:
+async def test_control_playback_prompt(mock_mass: Mock) -> None:
     """Test control_playback prompt."""
     mcp = FastMCP("test")
-    _register_prompts(mcp)
+    register_prompts(mcp, mock_mass)
 
     control_prompt = _get_prompt(mcp, "control_playback")
     assert control_prompt is not None
@@ -86,11 +81,10 @@ async def test_control_playback_prompt() -> None:
     assert "Kitchen" in result
 
 
-@pytest.mark.usefixtures("setup_mcp_state")
-async def test_discover_music_prompt() -> None:
+async def test_discover_music_prompt(mock_mass: Mock) -> None:
     """Test discover_music prompt."""
     mcp = FastMCP("test")
-    _register_prompts(mcp)
+    register_prompts(mcp, mock_mass)
 
     discover_prompt = _get_prompt(mcp, "discover_music")
     assert discover_prompt is not None
@@ -99,11 +93,10 @@ async def test_discover_music_prompt() -> None:
     assert "jazz" in result
 
 
-@pytest.mark.usefixtures("setup_mcp_state")
-async def test_manage_queue_prompt() -> None:
+async def test_manage_queue_prompt(mock_mass: Mock) -> None:
     """Test manage_queue prompt."""
     mcp = FastMCP("test")
-    _register_prompts(mcp)
+    register_prompts(mcp, mock_mass)
 
     queue_prompt = _get_prompt(mcp, "manage_queue")
     assert queue_prompt is not None
@@ -112,11 +105,10 @@ async def test_manage_queue_prompt() -> None:
     assert "Living Room" in result
 
 
-@pytest.mark.usefixtures("setup_mcp_state")
-async def test_setup_multiroom_prompt() -> None:
+async def test_setup_multiroom_prompt(mock_mass: Mock) -> None:
     """Test setup_multiroom prompt."""
     mcp = FastMCP("test")
-    _register_prompts(mcp)
+    register_prompts(mcp, mock_mass)
 
     multiroom_prompt = _get_prompt(mcp, "setup_multiroom")
     assert multiroom_prompt is not None
@@ -125,11 +117,10 @@ async def test_setup_multiroom_prompt() -> None:
     assert "Living Room" in result
 
 
-@pytest.mark.usefixtures("setup_mcp_state")
-async def test_setup_multiroom_prompt_shows_speakers() -> None:
+async def test_setup_multiroom_prompt_shows_speakers(mock_mass: Mock) -> None:
     """Test setup_multiroom prompt includes available speakers."""
     mcp = FastMCP("test")
-    _register_prompts(mcp)
+    register_prompts(mcp, mock_mass)
 
     multiroom_prompt = _get_prompt(mcp, "setup_multiroom")
     assert multiroom_prompt is not None
@@ -137,11 +128,10 @@ async def test_setup_multiroom_prompt_shows_speakers() -> None:
     assert "Available speakers" in result
 
 
-@pytest.mark.usefixtures("setup_mcp_state")
-async def test_transfer_playback_prompt() -> None:
+async def test_transfer_playback_prompt(mock_mass: Mock) -> None:
     """Test transfer_playback prompt."""
     mcp = FastMCP("test")
-    _register_prompts(mcp)
+    register_prompts(mcp, mock_mass)
 
     transfer_prompt = _get_prompt(mcp, "transfer_playback")
     assert transfer_prompt is not None
@@ -150,11 +140,10 @@ async def test_transfer_playback_prompt() -> None:
     assert "Bedroom" in result
 
 
-@pytest.mark.usefixtures("setup_mcp_state")
-async def test_transfer_playback_to_only() -> None:
+async def test_transfer_playback_to_only(mock_mass: Mock) -> None:
     """Test transfer_playback prompt with only to_player."""
     mcp = FastMCP("test")
-    _register_prompts(mcp)
+    register_prompts(mcp, mock_mass)
 
     transfer_prompt = _get_prompt(mcp, "transfer_playback")
     assert transfer_prompt is not None
