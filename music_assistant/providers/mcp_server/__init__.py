@@ -194,8 +194,8 @@ class MCPServerProvider(PluginProvider):
             "prompts": bool(self.config.get_value(CONF_ENABLE_PROMPTS)),
         }
 
-    async def loaded_in_mass(self) -> None:
-        """Call after the provider has been loaded."""
+    async def handle_async_init(self) -> None:
+        """Handle async initialization of the provider."""
         from .server import run_mcp_server  # noqa: PLC0415
 
         self._server_task = await run_mcp_server(
@@ -209,9 +209,8 @@ class MCPServerProvider(PluginProvider):
         # Get the publish IP from the streams controller for consistent URL display
         publish_ip = self.mass.streams.publish_ip
         self.logger.info(
-            "MCP Server available at http://%s:%d/mcp (port: %d)",
+            "MCP Server started on http://%s:%d/mcp",
             publish_ip,
-            self.port,
             self.port,
         )
 
