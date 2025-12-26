@@ -19,6 +19,8 @@ async def _get_error_body(resp: aiohttp.ClientResponse) -> str:
     """Safely extract error body from response (msgpack or text)."""
     try:
         data = await resp.read()
+        if not data:
+            return "<empty response body>"
         try:
             result = msgpack.unpackb(data, raw=False)
             if isinstance(result, dict):
@@ -287,6 +289,37 @@ class AudioStreamer:
         :param store: Whether to store the resulting embeddings.
         """
         await self._end_session(queue_item_id, store=store)
+
+    async def end_sessions_for_track_id(self, track_id: str, store: bool = True) -> None:
+        """
+        End all streaming sessions for a given track ID.
+
+        This is used when MEDIA_ITEM_PLAYED event fires, which provides track_id
+        but not queue_item_id.
+
+        :param track_id: The track ID from the library.
+        :param store: Whether to store the resulting embeddings.
+        """
+        # Find all sessions with matching track_id
+        matching_queue_ids = [
+            qid for qid, session in self._sessions.items() if session.track_id == track_id
+        ]
+        if not matching_queue_ids:
+            self.logger.debug(
+                "No active sessions found for track_id %s (active sessions: %s)",
+                track_id,
+                list(self._sessions.keys()),
+            )
+            return
+
+        self.logger.debug(
+            "Found %d session(s) for track_id %s: %s",
+            len(matching_queue_ids),
+            track_id,
+            matching_queue_ids,
+        )
+        for queue_item_id in matching_queue_ids:
+            await self._end_session(queue_item_id, store=store)
 
     async def _end_session(self, queue_item_id: str, store: bool = True) -> None:
         """

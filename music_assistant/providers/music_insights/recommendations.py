@@ -104,7 +104,7 @@ class RecommendationEngine:
             return []
 
         # Convert to sidecar format
-        interaction_list: list[dict[str, float | str]] = []
+        interaction_list: list[dict[str, str | int | float]] = []
         for track_id, meta in interactions.items():
             # Classify signal type based on metadata
             signal_type = self._classify_signal(meta)

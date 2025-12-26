@@ -412,13 +412,18 @@ class SidecarEmbeddings:
             msg = "Sidecar not connected"
             raise RuntimeError(msg)
 
-        return await self.client.compute_taste_profile(user_id, interactions, cutoff_days)
+        return await self.client.compute_taste_profile(
+            user_id=user_id,
+            interactions=interactions,
+            cutoff_days=cutoff_days,
+        )
 
     async def get_user_recommendations(
         self,
         user_id: str,
         limit: int = 25,
         exclude_ids: list[str] | None = None,
+        mood_filter: dict[str, Any] | None = None,
     ) -> list[Track]:
         """
         Get personalized recommendations based on user's taste profile.
@@ -426,13 +431,18 @@ class SidecarEmbeddings:
         :param user_id: User ID to get recommendations for.
         :param limit: Maximum number of recommendations (default: 25).
         :param exclude_ids: Track IDs to exclude from results.
+        :param mood_filter: Optional mood filter (unused in Phase 1).
         :return: List of recommended Track objects.
         """
         if not self._connected:
             return []
 
         try:
-            data = await self.client.get_taste_recommendations(user_id, limit, exclude_ids)
+            data = await self.client.get_taste_recommendations(
+                user_id=user_id,
+                limit=limit,
+                exclude_ids=exclude_ids,
+            )
         except Exception as e:
             self.logger.warning("Failed to get recommendations for %s: %s", user_id, e)
             return []

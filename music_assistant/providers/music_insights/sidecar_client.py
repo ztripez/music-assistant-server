@@ -762,7 +762,7 @@ class SidecarClient:
 
         payload = {
             "limit": limit,
-            "profile_type": "global",
+            "profile_type": {"type": "Global"},  # Adjacently tagged enum format
             "exclude_ids": exclude_ids or [],
             "filter": {},
         }

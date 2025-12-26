@@ -194,6 +194,12 @@ class MusicInsightProvider(MusicProvider):
             self.mass.subscribe(handler._on_mass_media_item_played, EventType.MEDIA_ITEM_PLAYED)
         )
 
+        # Subscribe to MEDIA_ITEM_PLAYED to end audio streaming sessions
+        if self.audio_streamer:
+            self._on_unload.append(
+                self.mass.subscribe(self._on_media_item_played, EventType.MEDIA_ITEM_PLAYED)
+            )
+
         self.logger.info("Subscribed to library and player events.")
 
         # Try to connect to sidecar (non-blocking, will retry in background)
@@ -279,6 +285,38 @@ class MusicInsightProvider(MusicProvider):
             await self.embeddings.upsert_track(track)
         elif event.event == EventType.MEDIA_ITEM_DELETED:
             await self.embeddings.remove_track(track.item_id)
+
+    async def _on_media_item_played(self, event: MassEvent) -> None:
+        """
+        Handle MEDIA_ITEM_PLAYED event to end audio streaming sessions.
+
+        This ensures that when a track finishes playing (or is skipped),
+        the streaming session is properly ended and embeddings are stored.
+
+        :param event: The MassEvent containing playback progress report.
+        """
+        if not self.audio_streamer:
+            return
+
+        # Extract track_id from the URI (format: "library://track/{item_id}")
+        uri: str = event.data.uri
+        self.logger.debug(
+            "MEDIA_ITEM_PLAYED event received: uri=%s, fully_played=%s",
+            uri,
+            event.data.fully_played,
+        )
+
+        if not uri.startswith("library://track/"):
+            return
+
+        track_id = uri.split("/")[-1]
+        if track_id:
+            self.logger.info(
+                "Ending streaming session for track %s (fully_played=%s)",
+                track_id,
+                event.data.fully_played,
+            )
+            await self.audio_streamer.end_sessions_for_track_id(track_id, store=True)
 
     @property
     def supported_features(self) -> set[ProviderFeature]:
