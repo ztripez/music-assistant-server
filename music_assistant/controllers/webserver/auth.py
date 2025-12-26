@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from sqlite3 import OperationalError
 from typing import TYPE_CHECKING, Any
 
+import jwt as pyjwt
 from music_assistant_models.auth import (
     AuthProviderType,
     AuthToken,
@@ -46,6 +47,7 @@ from music_assistant.helpers.api import api_command
 from music_assistant.helpers.database import DatabaseConnection
 from music_assistant.helpers.datetime import utc
 from music_assistant.helpers.json import json_dumps, json_loads
+from music_assistant.helpers.jwt_auth import JWTHelper
 
 if TYPE_CHECKING:
     from music_assistant.controllers.webserver import WebserverController
@@ -75,6 +77,7 @@ class AuthenticationManager:
         self.login_providers: dict[str, LoginProvider] = {}
         self.logger = LOGGER
         self._has_users: bool = False
+        self.jwt_helper: JWTHelper = None  # type: ignore[assignment]
 
     async def setup(self) -> None:
         """Initialize the authentication manager."""
@@ -89,6 +92,10 @@ class AuthenticationManager:
 
         # Create database schema and handle migrations
         await self._setup_database()
+
+        # Initialize JWT helper with secret key
+        jwt_secret = await self._get_or_create_jwt_secret()
+        self.jwt_helper = JWTHelper(jwt_secret)
 
         # Setup login providers based on config
         await self._setup_login_providers(allow_self_registration)
@@ -257,6 +264,28 @@ class AuthenticationManager:
             await self.database.execute("UPDATE users SET username = LOWER(username)")
             await self.database.commit()
 
+    async def _get_or_create_jwt_secret(self) -> str:
+        """Get or create JWT secret key from database.
+
+        :return: JWT secret key for signing tokens.
+        """
+        # Try to get existing secret
+        if secret_row := await self.database.get_row("settings", {"key": "jwt_secret"}):
+            return str(secret_row["value"])
+
+        # Generate new secret
+        jwt_secret = JWTHelper.generate_secret_key()
+
+        # Store in database
+        await self.database.insert_or_replace(
+            "settings",
+            {"key": "jwt_secret", "value": jwt_secret, "type": "string"},
+        )
+        await self.database.commit()
+
+        self.logger.info("Generated new JWT secret key")
+        return jwt_secret
+
     async def _setup_login_providers(self, allow_self_registration: bool) -> None:
         """
         Set up available login providers based on configuration.
@@ -350,12 +379,65 @@ class AuthenticationManager:
         """
         Authenticate a user with an access token.
 
-        :param token: The access token.
-        """
-        # Hash the token to look it up
-        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        Supports both JWT tokens and legacy hash-based tokens for backward compatibility.
 
-        # Find token in database
+        :param token: The access token (JWT or legacy hash token).
+        """
+        # Try to decode as JWT first
+        try:
+            payload = self.jwt_helper.decode_token(token, verify_exp=True)
+            token_id = payload.get("jti")
+            user_id = payload.get("sub")
+            is_long_lived = payload.get("is_long_lived", False)
+
+            if not token_id or not user_id:
+                # Invalid JWT structure
+                return None
+
+            # Check if token exists in database and is not revoked
+            token_row = await self.database.get_row("auth_tokens", {"token_id": token_id})
+            if not token_row:
+                # Token was revoked
+                return None
+
+            # Update last used timestamp
+            now = utc()
+            updates = {"last_used_at": now.isoformat()}
+
+            if not is_long_lived:
+                # Short-lived token: extend expiration on each use (sliding window)
+                new_expires_at = now + timedelta(days=TOKEN_SHORT_LIVED_EXPIRATION)
+                updates["expires_at"] = new_expires_at.isoformat()
+
+                # For JWT, we also need to update the token_hash with the new JWT
+                # Note: The client will need to handle receiving updated tokens
+                # For now, we just update the database expiration
+                # TODO: Implement token refresh mechanism for clients
+
+            # Update database
+            await self.database.update(
+                "auth_tokens",
+                {"token_id": token_id},
+                updates,
+            )
+
+            # Get user (prefer database lookup for latest user data)
+            return await self.get_user(user_id)
+
+        except pyjwt.ExpiredSignatureError:
+            # JWT expired, clean up from database
+            if token_id := self.jwt_helper.get_token_id(token):
+                await self.database.delete("auth_tokens", {"token_id": token_id})
+            return None
+        except pyjwt.InvalidTokenError:
+            # Not a JWT or invalid JWT, try legacy hash-based lookup
+            self.logger.debug("Token is not a valid JWT, trying legacy hash lookup")
+        except Exception as err:
+            # Unexpected error during JWT decode, log and fall back to legacy
+            self.logger.debug("Error decoding JWT token: %s, trying legacy hash lookup", err)
+
+        # Fallback: Legacy hash-based token lookup (backward compatibility)
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
         token_row = await self.database.get_row("auth_tokens", {"token_hash": token_hash})
         if not token_row:
             return None
@@ -392,13 +474,15 @@ class AuthenticationManager:
         """
         Get token_id from a token string (for tracking revocation).
 
-        :param token: The access token.
+        :param token: The access token (JWT or legacy hash token).
         :return: The token_id or None if token not found.
         """
-        # Hash the token to look it up
-        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        # Try to extract from JWT first
+        if token_id := self.jwt_helper.get_token_id(token):
+            return token_id
 
-        # Find token in database
+        # Fallback: Hash-based lookup for legacy tokens
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
         token_row = await self.database.get_row("auth_tokens", {"token_hash": token_hash})
         if not token_row:
             return None
@@ -783,9 +867,8 @@ class AuthenticationManager:
             Short-lived tokens (False): Auto-renewing on use, expire after 30 days of inactivity.
             Long-lived tokens (True): No auto-renewal, expire after 10 years.
         """
-        # Generate token
-        token = secrets.token_urlsafe(48)
-        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        # Generate unique token ID
+        token_id = secrets.token_urlsafe(32)
 
         # Calculate expiration based on token type
         created_at = utc()
@@ -796,9 +879,19 @@ class AuthenticationManager:
             # Short-lived tokens expire after 30 days (with auto-renewal on use)
             expires_at = created_at + timedelta(days=TOKEN_SHORT_LIVED_EXPIRATION)
 
-        # Store token
+        # Generate JWT token
+        token = self.jwt_helper.encode_token(
+            user=user,
+            token_id=token_id,
+            token_name=name,
+            expires_at=expires_at,
+            is_long_lived=is_long_lived,
+        )
+
+        # Store token hash in database for revocation checking
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
         token_data = {
-            "token_id": secrets.token_urlsafe(32),
+            "token_id": token_id,
             "user_id": user.user_id,
             "token_hash": token_hash,
             "name": name,
