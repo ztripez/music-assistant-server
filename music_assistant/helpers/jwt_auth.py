@@ -1,4 +1,15 @@
-"""JWT token helper for Music Assistant authentication."""
+"""JWT token helper for Music Assistant authentication.
+
+Future OIDC Support:
+- Consuming external OIDC providers (Google, Keycloak, etc.): Can be added without
+  changes to token structure. MA would validate external OIDC tokens and issue its
+  own JWT tokens (similar to current Home Assistant OAuth flow).
+
+- Acting as OIDC provider for third parties: Would require implementing OAuth2
+  refresh token flow with a dedicated /auth/token endpoint for token refresh.
+  Short-lived access tokens (15 min) + long-lived refresh tokens would be needed
+  for proper OIDC compliance.
+"""
 
 from __future__ import annotations
 
