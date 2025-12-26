@@ -400,6 +400,14 @@ class AuthenticationManager:
                 # Token was revoked
                 return None
 
+            # Check if token is expired in database (database is source of truth)
+            if token_row["expires_at"]:
+                db_expires_at = datetime.fromisoformat(token_row["expires_at"])
+                if utc() > db_expires_at:
+                    # Token expired in database, delete it
+                    await self.database.delete("auth_tokens", {"token_id": token_id})
+                    return None
+
             # Update last used timestamp
             now = utc()
             updates = {"last_used_at": now.isoformat()}
