@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
@@ -302,12 +304,14 @@ class SidecarClient:
         self,
         track_id: str,
         metadata: TrackMetadata,
+        metadata_hash: str | None = None,
     ) -> dict[str, Any]:
         """
         Generate text embedding from metadata and store it in one operation.
 
         :param track_id: Unique track identifier.
         :param metadata: Track metadata for embedding.
+        :param metadata_hash: Optional hash for change detection.
         :return: Response with track_id, stored status, and embedded text.
         """
         session = await self._get_session()
@@ -320,6 +324,7 @@ class SidecarClient:
                 "artists": metadata.artists,
                 "album": metadata.album,
                 "genres": metadata.genres or [],
+                "metadata_hash": metadata_hash,
             },
         }
 
@@ -473,6 +478,39 @@ class SidecarClient:
             if r["track_id"] != track_id
         ][:limit]
 
+    async def track_exists(self, track_id: str) -> bool:
+        """
+        Check if a track has embeddings in storage.
+
+        :param track_id: The track ID to check.
+        :return: True if the track exists in storage.
+        """
+        session = await self._get_session()
+        url = f"{self.base_url}/api/v1/tracks/{track_id}"
+
+        async with session.get(url) as resp:
+            return resp.status == 200
+
+    async def get_track_hash(self, track_id: str) -> str | None:
+        """
+        Get the stored metadata hash for a track.
+
+        :param track_id: The track ID to check.
+        :return: The stored hash or None if track not found.
+        """
+        session = await self._get_session()
+        url = f"{self.base_url}/api/v1/tracks/{track_id}"
+
+        async with session.get(url) as resp:
+            if resp.status == 404:
+                return None
+            if resp.status != 200:
+                return None
+            data: dict[str, Any] = msgpack.unpackb(await resp.read(), raw=False)
+            metadata: dict[str, Any] = data.get("metadata", {})
+            hash_val: str | None = metadata.get("metadata_hash")
+            return hash_val
+
     async def delete_track(self, track_id: str) -> bool:
         """
         Delete a track's embeddings from storage.
@@ -494,6 +532,18 @@ class SidecarClient:
                 body = await self._get_error_body(resp)
                 raise RuntimeError(f"Delete failed: {resp.status} - {body}")
             return True
+
+    @staticmethod
+    def compute_track_hash(track: Track) -> str:
+        """
+        Compute a hash of Track for change detection.
+
+        :param track: The Track object.
+        :return: SHA-256 hex digest.
+        """
+        data = track.to_dict()
+        json_str = json.dumps(data, sort_keys=True, ensure_ascii=True, default=str)
+        return hashlib.sha256(json_str.encode("utf-8")).hexdigest()
 
     @staticmethod
     def track_to_metadata(track: Track) -> TrackMetadata:

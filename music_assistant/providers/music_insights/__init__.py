@@ -228,6 +228,10 @@ class MusicInsightProvider(MusicProvider):
                 if rebuild_on_start:
                     self.logger.info("Scheduling full embedding rebuild (rebuild_on_start=True)")
                     self.mass.create_task(self._rebuild_embeddings())
+                else:
+                    # Start incremental sync in background
+                    self.logger.info("Starting background library sync")
+                    self.mass.create_task(self._sync_embeddings())
 
             except Exception as e:
                 self.logger.warning(
@@ -420,3 +424,56 @@ class MusicInsightProvider(MusicProvider):
 
         except Exception as e:
             self.logger.error("Failed during embedding rebuild: %s", e, exc_info=e)
+
+    async def _sync_embeddings(self, rate_limit_delay: float = 0.05) -> None:
+        """
+        Incrementally sync library tracks to embeddings storage.
+
+        Only processes tracks whose metadata has changed (hash comparison done server-side).
+        Runs as a low-priority background task with rate limiting.
+
+        :param rate_limit_delay: Seconds to wait between each track (default: 0.05).
+        """
+        self.logger.info("Starting incremental library sync...")
+        synced = 0
+        errors = 0
+
+        try:
+            tracks = await self.mass.music.tracks.library_items()
+            track_list = list(tracks)
+            total = len(track_list)
+
+            self.logger.info("Syncing %d library tracks", total)
+
+            for i, track in enumerate(track_list):
+                try:
+                    if await self.embeddings.upsert_track(track):
+                        synced += 1
+                    else:
+                        errors += 1
+                except Exception as e:
+                    self.logger.debug("Error syncing track %s: %s", track.item_id, e)
+                    errors += 1
+
+                # Rate limit to avoid overloading sidecar
+                if rate_limit_delay > 0:
+                    await asyncio.sleep(rate_limit_delay)
+
+                # Log progress every 500 tracks
+                if (i + 1) % 500 == 0:
+                    self.logger.info(
+                        "Sync progress: %d/%d (synced=%d, errors=%d)",
+                        i + 1,
+                        total,
+                        synced,
+                        errors,
+                    )
+
+            self.logger.info(
+                "Library sync complete: %d tracks synced, %d errors",
+                synced,
+                errors,
+            )
+
+        except Exception as e:
+            self.logger.error("Library sync failed: %s", e, exc_info=e)

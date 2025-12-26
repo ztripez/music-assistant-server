@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -93,27 +94,35 @@ class SidecarEmbeddings:
         """Return whether the sidecar connection is established."""
         return self._connected
 
-    async def upsert_track(self, track: Track) -> None:
+    async def upsert_track(self, track: Track) -> bool:
         """
         Generate and store text embeddings for a track.
 
         :param track: The Track object to process.
+        :return: True if track was upserted, False if failed.
         """
         if not self._connected:
             self.logger.warning("Sidecar not connected, skipping upsert for %s", track.item_id)
-            return
+            return False
 
         metadata = SidecarClient.track_to_metadata(track)
+        # Run hash computation in thread pool to avoid blocking event loop
+        loop = asyncio.get_running_loop()
+        track_hash = await loop.run_in_executor(None, SidecarClient.compute_track_hash, track)
 
         try:
-            result = await self.client.embed_text_and_store(track.item_id, metadata)
+            result = await self.client.embed_text_and_store(
+                track.item_id, metadata, metadata_hash=track_hash
+            )
             self.logger.debug(
                 "Upserted track %s: %s",
                 track.item_id,
                 result.get("text", "")[:50],
             )
+            return True
         except Exception as e:
             self.logger.warning("Failed to upsert track %s: %s", track.item_id, e)
+            return False
 
     async def upsert_tracks_batch(self, tracks: list[Track], batch_size: int = 50) -> int:
         """
