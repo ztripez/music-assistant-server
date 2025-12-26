@@ -707,3 +707,70 @@ class SidecarClient:
             elapsed += poll_interval
 
         raise TimeoutError(f"Download {download_id} timed out after {timeout}s")
+
+    # ========================================================================
+    # Taste Profile API
+    # ========================================================================
+
+    async def compute_taste_profile(
+        self,
+        user_id: str,
+        interactions: list[dict[str, Any]],
+        cutoff_days: int = 21,
+    ) -> dict[str, Any]:
+        """
+        Compute taste profile from user interactions.
+
+        :param user_id: User ID to compute profile for.
+        :param interactions: List of interaction dicts.
+        :param cutoff_days: Number of days of history to consider.
+        :return: Response with user_id and profile metadata.
+        """
+        session = await self._get_session()
+        url = f"{self.base_url}/api/v1/users/{user_id}/profile/compute"
+
+        payload = {
+            "interactions": interactions,
+            "cutoff_days": cutoff_days,
+            "profile_type": "global",
+        }
+
+        data = msgpack.packb(payload)
+        async with session.post(url, data=data) as resp:
+            if resp.status != 200:
+                body = await self._get_error_body(resp)
+                raise RuntimeError(f"Failed to compute taste profile: {resp.status} - {body}")
+            result: dict[str, Any] = msgpack.unpackb(await resp.read(), raw=False)
+            return result
+
+    async def get_taste_recommendations(
+        self,
+        user_id: str,
+        limit: int = 25,
+        exclude_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """
+        Get personalized recommendations based on taste profile.
+
+        :param user_id: User ID to get recommendations for.
+        :param limit: Maximum number of recommendations.
+        :param exclude_ids: Track IDs to exclude from results.
+        :return: Response with tracks list and profile_confidence.
+        """
+        session = await self._get_session()
+        url = f"{self.base_url}/api/v1/users/{user_id}/recommend"
+
+        payload = {
+            "limit": limit,
+            "profile_type": "global",
+            "exclude_ids": exclude_ids or [],
+            "filter": {},
+        }
+
+        data = msgpack.packb(payload)
+        async with session.post(url, data=data) as resp:
+            if resp.status != 200:
+                body = await self._get_error_body(resp)
+                raise RuntimeError(f"Failed to get recommendations: {resp.status} - {body}")
+            result: dict[str, Any] = msgpack.unpackb(await resp.read(), raw=False)
+            return result

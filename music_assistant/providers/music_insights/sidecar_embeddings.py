@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from music_assistant_models.unique_list import UniqueList
 
@@ -389,3 +389,63 @@ class SidecarEmbeddings:
         except Exception as e:
             self.logger.error("Failed to ensure model %s is loaded: %s", model_id, e)
             return False
+
+    # ========================================================================
+    # Taste Profile API Methods
+    # ========================================================================
+
+    async def compute_user_profile(
+        self,
+        user_id: str,
+        interactions: list[dict[str, Any]],
+        cutoff_days: int = 21,
+    ) -> dict[str, Any]:
+        """
+        Compute taste profile from user interactions.
+
+        :param user_id: User ID to compute profile for.
+        :param interactions: List of interaction dicts with track_id, timestamp, signal_type, etc.
+        :param cutoff_days: Number of days of history to consider (default: 21).
+        :return: Response dict with user_id and profile metadata.
+        """
+        if not self._connected:
+            msg = "Sidecar not connected"
+            raise RuntimeError(msg)
+
+        return await self.client.compute_taste_profile(user_id, interactions, cutoff_days)
+
+    async def get_user_recommendations(
+        self,
+        user_id: str,
+        limit: int = 25,
+        exclude_ids: list[str] | None = None,
+    ) -> list[Track]:
+        """
+        Get personalized recommendations based on user's taste profile.
+
+        :param user_id: User ID to get recommendations for.
+        :param limit: Maximum number of recommendations (default: 25).
+        :param exclude_ids: Track IDs to exclude from results.
+        :return: List of recommended Track objects.
+        """
+        if not self._connected:
+            return []
+
+        try:
+            data = await self.client.get_taste_recommendations(user_id, limit, exclude_ids)
+        except Exception as e:
+            self.logger.warning("Failed to get recommendations for %s: %s", user_id, e)
+            return []
+
+        # Convert response to Track objects
+        tracks: list[Track] = []
+        for item in data.get("tracks", []):
+            try:
+                base_id = item["track_id"].split("#")[0]
+                track = await self.mass.music.tracks.get(base_id, provider_instance_id_or_domain="")
+                if track:
+                    tracks.append(track)
+            except Exception as e:
+                self.logger.debug("Could not fetch track %s: %s", item["track_id"], e)
+
+        return tracks

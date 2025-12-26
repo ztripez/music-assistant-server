@@ -14,7 +14,6 @@ from music_assistant.helpers.scrobbler import ScrobblerHelper
 from music_assistant.mass import LOGGER
 
 if TYPE_CHECKING:
-    from music_assistant_models.media_items import Track
     from music_assistant_models.playback_progress_report import MediaItemPlaybackProgressReport
 
     from music_assistant.mass import MusicAssistant
@@ -81,14 +80,19 @@ class RecommendationEngine:
         await self.mass.cache.set(INTERACTIONS_CACHE_KEY, interactions)
         self.logger.debug("Recorded interaction: %s", event.mbid)
 
-    async def get_recommendations(self, limit: int = 25) -> list[RecommendationFolder]:
+    async def get_recommendations(
+        self,
+        limit: int = 25,
+        user_id: str | None = None,
+    ) -> list[RecommendationFolder]:
         """
         Generate recommendations based on stored user interactions.
 
-        Reads stored interactions from cache, determines the most relevant
-        tracks, and returns similar tracks based on the user's taste profile.
+        Uses the taste profile API to compute personalized recommendations
+        from aggregated user interactions.
 
         :param limit: The maximum number of recommendation items to return.
+        :param user_id: User ID for multi-user setups (defaults to "default").
         :return: A list of RecommendationFolder objects with recommended tracks.
         """
         # Get interactions from cache
@@ -99,66 +103,34 @@ class RecommendationEngine:
         if not interactions:
             return []
 
-        # Score and rank interactions
-        scored: dict[str, float] = {}
-        id_to_uri: dict[str, str] = {}
-        now = time.time()
-
+        # Convert to sidecar format
+        interaction_list: list[dict[str, float | str]] = []
         for track_id, meta in interactions.items():
-            uri = str(meta.get("uri", ""))
-            id_to_uri[track_id] = uri
+            # Classify signal type based on metadata
+            signal_type = self._classify_signal(meta)
 
-            # Calculate base score
-            base = float(meta.get("score", 0))
-            if meta.get("fully_played"):
-                base += 2
+            interaction_list.append(
+                {
+                    "track_id": track_id,
+                    "timestamp": int(meta.get("timestamp", time.time())),
+                    "signal_type": signal_type,
+                    "seconds_played": float(meta.get("seconds_played", 0)),
+                    "duration": float(meta.get("duration", 1)),
+                }
+            )
 
-            duration = float(meta.get("duration", 0))
-            if duration > 0:
-                fraction = float(meta.get("seconds_played", 0)) / duration
-                base += fraction * 2
+        # Use user_id from MA user profile or fallback to "default"
+        uid = user_id or "default"
 
-            # Apply time decay
-            timestamp = float(meta.get("timestamp", now))
-            age_days = max(0.0, now - timestamp) / 86_400
-            decay = 0.9**age_days
-            score = base * decay
+        # Compute profile and get recommendations
+        try:
+            await self.embeddings.compute_user_profile(uid, interaction_list, cutoff_days=21)
+            tracks = await self.embeddings.get_user_recommendations(uid, limit=limit)
+        except Exception as err:
+            self.logger.error("Failed to get taste recommendations: %s", err)
+            return []
 
-            scored[track_id] = scored.get(track_id, 0) + score
-
-        # Sort by score, pick most relevant interactions
-        sorted_ids = [
-            track_id for track_id, _ in sorted(scored.items(), key=lambda x: x[1], reverse=True)
-        ]
-
-        recommended: UniqueList[Track] = UniqueList()
-
-        for track_id in sorted_ids:
-            if len(recommended) >= limit:
-                break
-
-            uri = id_to_uri.get(track_id) or ""
-            if not uri:
-                continue
-
-            try:
-                track = await self.mass.music.get_item_by_uri(uri)
-            except Exception as err:
-                self.logger.debug("Could not resolve track for %s: %s", uri, err)
-                continue
-
-            if not track:
-                continue
-
-            # Get similar tracks from sidecar
-            similar = await self.embeddings.get_similar_tracks(track.item_id, limit=5)
-            for item in similar:
-                if item not in recommended:
-                    recommended.append(item)
-                if len(recommended) >= limit:
-                    break
-
-        if not recommended:
+        if not tracks:
             return []
 
         folder = RecommendationFolder(
@@ -167,9 +139,29 @@ class RecommendationEngine:
             name="Recommended for you",
             translation_key="recommended_tracks",
             icon="mdi-brain",
-            items=UniqueList(recommended[:limit]),
+            items=UniqueList(tracks[:limit]),
         )
         return [folder]
+
+    def _classify_signal(self, meta: dict[str, float | str | bool]) -> str:
+        """
+        Classify interaction as a signal type for the taste profile API.
+
+        :param meta: Interaction metadata dict.
+        :return: Signal type string (full_play, partial_play, skip, repeat).
+        """
+        fully_played = meta.get("fully_played", False)
+        seconds_played = float(meta.get("seconds_played", 0))
+        duration = float(meta.get("duration", 1))
+        score = float(meta.get("score", 0))
+
+        if score >= 2.0:  # Multiple plays
+            return "repeat"
+        if fully_played:
+            return "full_play"
+        if duration > 0 and seconds_played / duration > 0.5:
+            return "partial_play"
+        return "skip"
 
 
 class InsightScrobbler(ScrobblerHelper):
