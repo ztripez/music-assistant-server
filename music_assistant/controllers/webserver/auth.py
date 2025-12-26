@@ -391,20 +391,16 @@ class AuthenticationManager:
             is_long_lived = payload.get("is_long_lived", False)
 
             if not token_id or not user_id:
-                # Invalid JWT structure
                 return None
 
-            # Check if token exists in database and is not revoked
             token_row = await self.database.get_row("auth_tokens", {"token_id": token_id})
             if not token_row:
-                # Token was revoked
                 return None
 
-            # Check if token is expired in database (database is source of truth)
+            # Database expiration is source of truth
             if token_row["expires_at"]:
                 db_expires_at = datetime.fromisoformat(token_row["expires_at"])
                 if utc() > db_expires_at:
-                    # Token expired in database, delete it
                     await self.database.delete("auth_tokens", {"token_id": token_id})
                     return None
 
@@ -417,11 +413,6 @@ class AuthenticationManager:
                 new_expires_at = now + timedelta(days=TOKEN_SHORT_LIVED_EXPIRATION)
                 updates["expires_at"] = new_expires_at.isoformat()
 
-                # For JWT, we also need to update the token_hash with the new JWT
-                # Note: The client will need to handle receiving updated tokens
-                # For now, we just update the database expiration
-                # TODO: Implement token refresh mechanism for clients
-
             # Update database
             await self.database.update(
                 "auth_tokens",
@@ -429,22 +420,18 @@ class AuthenticationManager:
                 updates,
             )
 
-            # Get user (prefer database lookup for latest user data)
             return await self.get_user(user_id)
 
         except pyjwt.ExpiredSignatureError:
-            # JWT expired, clean up from database
             if token_id := self.jwt_helper.get_token_id(token):
                 await self.database.delete("auth_tokens", {"token_id": token_id})
             return None
         except pyjwt.InvalidTokenError:
-            # Not a JWT or invalid JWT, try legacy hash-based lookup
             self.logger.debug("Token is not a valid JWT, trying legacy hash lookup")
         except Exception as err:
-            # Unexpected error during JWT decode, log and fall back to legacy
             self.logger.debug("Error decoding JWT token: %s, trying legacy hash lookup", err)
 
-        # Fallback: Legacy hash-based token lookup (backward compatibility)
+        # Fallback to legacy hash-based token lookup
         token_hash = hashlib.sha256(token.encode()).hexdigest()
         token_row = await self.database.get_row("auth_tokens", {"token_hash": token_hash})
         if not token_row:
