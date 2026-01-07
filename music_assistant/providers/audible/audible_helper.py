@@ -13,13 +13,15 @@ from collections.abc import AsyncGenerator
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from os import PathLike
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urlparse
 
 import audible
 import audible.register
-import httpx
 from audible import AsyncClient
+
+if TYPE_CHECKING:
+    from aiohttp import ClientSession
 from music_assistant_models.enums import ContentType, ImageType, MediaType, StreamType
 from music_assistant_models.errors import LoginFailed, MediaNotFoundError
 from music_assistant_models.media_items import (
@@ -52,7 +54,7 @@ _AUTH_CACHE: dict[str, audible.Authenticator] = {}
 
 
 async def refresh_access_token_compat(
-    refresh_token: str, domain: str, with_username: bool = False
+    refresh_token: str, domain: str, http_session: ClientSession, with_username: bool = False
 ) -> dict[str, Any]:
     """Refresh tokens with compatibility for new Audible API format.
 
@@ -61,6 +63,7 @@ async def refresh_access_token_compat(
 
     :param refresh_token: The refresh token obtained after device registration.
     :param domain: The top level domain (e.g., com, de).
+    :param http_session: The HTTP client session to use for requests.
     :param with_username: If True, use audible domain instead of amazon.
     :return: Dict with access_token and expires timestamp.
     """
@@ -77,10 +80,9 @@ async def refresh_access_token_compat(
     target_domain = "audible" if with_username else "amazon"
     url = f"https://api.{target_domain}.{domain}/auth/token"
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(url, data=body)
+    async with http_session.post(url, data=body) as resp:
         resp.raise_for_status()
-        resp_dict = resp.json()
+        resp_dict = await resp.json()
 
     expires_in_sec = int(resp_dict.get("expires_in", 3600))
     expires = (datetime.now(UTC) + timedelta(seconds=expires_in_sec)).timestamp()

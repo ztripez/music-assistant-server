@@ -13,7 +13,13 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 from aiohttp import ClientTimeout, web
-from music_assistant_models.enums import EventType, PlayerType, QueueOption, RepeatMode
+from music_assistant_models.enums import (
+    EventType,
+    PlayerFeature,
+    PlayerType,
+    QueueOption,
+    RepeatMode,
+)
 from plexapi.playqueue import PlayQueue
 
 from .gdm import PlexGDMAdvertiser
@@ -343,6 +349,32 @@ class PlexRemoteControlServer:
             },
         )
 
+    async def _ungroup_player_if_needed(self, player_id: str) -> None:
+        """Ungroup player before playback if it's part of a group/sync."""
+        player = self.provider.mass.players.get(player_id)
+        if not player or player.type == PlayerType.GROUP:
+            return
+
+        if not (player.synced_to or player.group_members or player.active_group):
+            return
+
+        LOGGER.debug("Ungrouping player %s before starting playback from Plex", player.display_name)
+        # Use set_members directly on the group to bypass static member check
+        if (
+            player.active_group
+            and (group := self.provider.mass.players.get(player.active_group))
+            and group.supports_feature(PlayerFeature.SET_MEMBERS)
+        ):
+            await group.set_members(player_ids_to_remove=[player_id])
+        elif (
+            player.synced_to
+            and (sync_leader := self.provider.mass.players.get(player.synced_to))
+            and sync_leader.supports_feature(PlayerFeature.SET_MEMBERS)
+        ):
+            await sync_leader.set_members(player_ids_to_remove=[player_id])
+        elif player.group_members and player.supports_feature(PlayerFeature.SET_MEMBERS):
+            await player.set_members(player_ids_to_remove=player.group_members)
+
     async def handle_play_media(self, request: web.Request) -> web.Response:
         """
         Handle playMedia command from Plex controller.
@@ -376,6 +408,10 @@ class PlexRemoteControlServer:
             player_id = self._ma_player_id
             if not player_id:
                 return web.Response(status=500, text="No player assigned to this server")
+
+            # Ungroup player if it's part of a group/sync
+            # User selected this specific player, so remove from any groups
+            await self._ungroup_player_if_needed(player_id)
 
             if container_key and "/playQueues/" in container_key:
                 # Extract play queue ID from container key
@@ -964,6 +1000,8 @@ class PlexRemoteControlServer:
         self._updating_from_plex = True
         try:
             if self._ma_player_id:
+                # Ungroup player before resuming playback
+                await self._ungroup_player_if_needed(self._ma_player_id)
                 await self.provider.mass.players.cmd_play(self._ma_player_id)
             await self._broadcast_timeline()
             return web.Response(status=200)
@@ -1014,18 +1052,15 @@ class PlexRemoteControlServer:
         self._updating_from_plex = True
         try:
             if self._ma_player_id:
-                # Step forward 30 seconds
-                player = self.provider.mass.players.get(self._ma_player_id)
                 queue = self.provider.mass.player_queues.get(self._ma_player_id)
-                if player and player.corrected_elapsed_time is not None:
-                    max_duration = player.corrected_elapsed_time + 30
-                    if queue and queue.current_item and queue.current_item.media_item:
-                        max_duration = min(
-                            player.corrected_elapsed_time + 30,
-                            queue.current_item.media_item.duration
-                            or (player.corrected_elapsed_time + 30),
-                        )
-                    await self.provider.mass.players.cmd_seek(self._ma_player_id, int(max_duration))
+                if queue:
+                    # Step forward 30 seconds
+                    new_position = queue.corrected_elapsed_time + 30
+                    if queue.current_item and queue.current_item.media_item:
+                        # Don't seek past the track duration
+                        max_duration = queue.current_item.media_item.duration or new_position
+                        new_position = min(new_position, max_duration)
+                    await self.provider.mass.players.cmd_seek(self._ma_player_id, int(new_position))
                     # Wait briefly for player state to update
                     await asyncio.sleep(0.1)
             await self._broadcast_timeline()
@@ -1038,10 +1073,10 @@ class PlexRemoteControlServer:
         self._updating_from_plex = True
         try:
             if self._ma_player_id:
-                # Step back 10 seconds
-                player = self.provider.mass.players.get(self._ma_player_id)
-                if player and player.corrected_elapsed_time is not None:
-                    new_position = max(0, player.corrected_elapsed_time - 10)
+                queue = self.provider.mass.player_queues.get(self._ma_player_id)
+                if queue:
+                    # Step back 10 seconds
+                    new_position = max(0, queue.corrected_elapsed_time - 10)
                     await self.provider.mass.players.cmd_seek(self._ma_player_id, int(new_position))
                     # Wait briefly for player state to update
                     await asyncio.sleep(0.1)
@@ -1389,11 +1424,7 @@ class PlexRemoteControlServer:
             duration = round(track.duration * 1000) if track.duration else 0
 
             # Current playback time in milliseconds
-            time = (
-                round(player.corrected_elapsed_time * 1000)
-                if player and player.corrected_elapsed_time is not None
-                else 0
-            )
+            time = round(queue.corrected_elapsed_time * 1000)
 
             # Build timeline attributes
             attrs = self._build_timeline_attributes(
@@ -1409,12 +1440,8 @@ class PlexRemoteControlServer:
                     f'shuffle="{shuffle}" repeat="{repeat}" controllable="{controllable}"/>'
                 )
         else:
-            # No current track - use actual state
-            time = (
-                round(player.corrected_elapsed_time * 1000)
-                if player and player.corrected_elapsed_time is not None
-                else 0
-            )
+            # No current track - send stopped state with time=0
+            time = 0
             music_timeline = (
                 f'<Timeline state="{state}" time="{time}" type="music" volume="{volume}" '
                 f'shuffle="{shuffle}" repeat="{repeat}" controllable="{controllable}"/>'
@@ -1672,12 +1699,8 @@ class PlexRemoteControlServer:
             else:
                 plex_state = "stopped"
 
-            # Get position in milliseconds
-            position_ms = (
-                round(player.corrected_elapsed_time * 1000)
-                if player.corrected_elapsed_time is not None
-                else 0
-            )
+            # Get position and duration in milliseconds
+            position_ms = round(queue.corrected_elapsed_time * 1000)
             duration_ms = round(track.duration * 1000) if track.duration else 0
 
             # Get play queue info if available

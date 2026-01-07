@@ -284,6 +284,7 @@ class Audibleprovider(MusicProvider):
                         refresh_data = await refresh_access_token_compat(
                             refresh_token=auth.refresh_token,
                             domain=auth.locale.domain,
+                            http_session=self.mass.http_session,
                             with_username=auth.with_username or False,
                         )
                         auth._update_attrs(**refresh_data)
