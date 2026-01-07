@@ -145,20 +145,68 @@ class AudibleHelper:
         self.provider_domain = provider_domain
         self.provider_instance = provider_instance
         self.logger = logger or logging.getLogger("audible_helper")
+        self._acr_cache: dict[tuple[str, MediaType], str] = {}
 
-    async def _process_audiobook_item(
-        self, audiobook_data: dict[str, Any], total_processed: int
-    ) -> tuple[Audiobook | None, int]:
-        """Process a single audiobook item from the library."""
-        content_type = audiobook_data.get("content_delivery_type", "")
-        if content_type not in AUDIOBOOK_CONTENT_TYPES:
+    async def _fetch_library_items(
+        self,
+        response_groups: str,
+        content_types: tuple[str, ...],
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Fetch items from the library with pagination."""
+        page = 1
+        page_size = 50
+        total_processed = 0
+        max_iterations = 100
+        iteration = 0
+
+        while iteration < max_iterations:
+            iteration += 1
             self.logger.debug(
-                "Skipping non-audiobook item: %s (%s)",
-                audiobook_data.get("title", "Unknown"),
-                content_type,
+                "Audible: Fetching library page %s (processed so far: %s)",
+                page,
+                total_processed,
             )
-            return None, total_processed + 1
 
+            library = await self._call_api(
+                "library",
+                use_cache=False,
+                response_groups=response_groups,
+                page=page,
+                num_results=page_size,
+            )
+
+            items = library.get("items", [])
+
+            if not items:
+                break
+
+            items_processed_this_page = 0
+            for item in items:
+                # Filter by content type if specified
+                if content_types and item.get("content_delivery_type") not in content_types:
+                    continue
+
+                yield item
+                items_processed_this_page += 1
+                total_processed += 1
+
+            self.logger.debug(
+                "Audible: Processed %s items on page %s", items_processed_this_page, page
+            )
+
+            page += 1
+            if len(items) < page_size:
+                break
+
+        if iteration >= max_iterations:
+            self.logger.warning(
+                "Audible: Reached maximum iteration limit (%s) with %s items processed",
+                max_iterations,
+                total_processed,
+            )
+
+    async def _process_audiobook_item(self, audiobook_data: dict[str, Any]) -> Audiobook | None:
+        """Process a single audiobook item from the library."""
         # Ensure asin is a valid string
         asin = str(audiobook_data.get("asin", ""))
         cached_book = None
@@ -172,18 +220,16 @@ class AudibleHelper:
 
         try:
             if cached_book is not None:
-                album = self._parse_audiobook(cached_book)
-            else:
-                album = self._parse_audiobook(audiobook_data)
-            return album, total_processed + 1
+                return self._parse_audiobook(cached_book)
+            return self._parse_audiobook(audiobook_data)
         except MediaNotFoundError as exc:
             self.logger.warning(f"Skipping invalid audiobook: {exc}")
-            return None, total_processed + 1
+            return None
         except Exception as exc:
             self.logger.warning(
                 f"Error processing audiobook {audiobook_data.get('asin', 'unknown')}: {exc}"
             )
-            return None, total_processed + 1
+            return None
 
     async def get_library(self) -> AsyncGenerator[Audiobook, None]:
         """Fetch the user's library with pagination."""
@@ -196,81 +242,11 @@ class AudibleHelper:
             "product_extended_attrs",
         ]
 
-        page = 1
-        page_size = 50
-        total_processed = 0
-        max_iterations = 100
-        iteration = 0
-
-        while iteration < max_iterations:
-            iteration += 1
-            self.logger.debug(
-                "Audible: Fetching library page %s with page_size %s (processed so far: %s)",
-                page,
-                page_size,
-                total_processed,
-            )
-
-            library = await self._call_api(
-                "library",
-                use_cache=False,
-                response_groups=",".join(response_groups),
-                page=page,
-                num_results=page_size,
-            )
-
-            items = library.get("items", [])
-            total_items = library.get("total_results", 0)
-            self.logger.debug(
-                "Audible: Got %s items (total reported by API: %s)", len(items), total_items
-            )
-
-            if not items:
-                self.logger.debug(
-                    "Audible: No more items returned, ending pagination (processed %s items)",
-                    total_processed,
-                )
-                break
-
-            items_processed_this_page = 0
-            for audiobook_data in items:
-                album, total_processed = await self._process_audiobook_item(
-                    audiobook_data, total_processed
-                )
-                if album:
-                    yield album
-                    items_processed_this_page += 1
-
-            self.logger.debug(
-                "Audible: Processed %s valid audiobooks on page %s", items_processed_this_page, page
-            )
-
-            page += 1
-            self.logger.debug(
-                "Audible: Moving to page %s (processed: %s, total reported: %s)",
-                page,
-                total_processed,
-                total_items,
-            )
-
-            if len(items) < page_size:
-                self.logger.debug(
-                    "Audible: Fewer than page size returned, ending pagination "
-                    "(processed %s items)",
-                    total_processed,
-                )
-                break
-
-        if iteration >= max_iterations:
-            self.logger.warning(
-                "Audible: Reached maximum iteration limit (%s) with %s items processed",
-                max_iterations,
-                total_processed,
-            )
-        else:
-            self.logger.info(
-                "Audible: Successfully retrieved %s audiobooks from library", total_processed
-            )
+        async for item in self._fetch_library_items(
+            ",".join(response_groups), AUDIOBOOK_CONTENT_TYPES
+        ):
+            if album := await self._process_audiobook_item(item):
+                yield album
 
     async def get_audiobook(self, asin: str, use_cache: bool = True) -> Audiobook:
         """Fetch the full audiobook by asin with all details including chapters.
@@ -405,6 +381,8 @@ class AudibleHelper:
                 raise ValueError(f"Missing stream URL for ASIN {asin}")
 
             acr = content_license.get("acr", "")
+            if acr:
+                self._acr_cache[(asin, media_type)] = acr
 
             content_type = (
                 ContentType.MP3 if media_type == MediaType.PODCAST_EPISODE else ContentType.AAC
@@ -524,8 +502,11 @@ class AudibleHelper:
         try:
             position_ms = pos * 1000
 
-            stream_details = await self.get_stream(asin=asin, media_type=media_type)
-            acr = stream_details.data.get("acr")
+            # Try to get ACR from cache first
+            acr = self._acr_cache.get((asin, media_type))
+            if not acr:
+                stream_details = await self.get_stream(asin=asin, media_type=media_type)
+                acr = stream_details.data.get("acr")
 
             if not acr:
                 self.logger.warning(f"No ACR available for ASIN {asin}, cannot report position")
@@ -693,19 +674,8 @@ class AudibleHelper:
 
         return book
 
-    async def _process_podcast_item(
-        self, podcast_data: dict[str, Any], total_processed: int
-    ) -> tuple[Podcast | None, int]:
+    async def _process_podcast_item(self, podcast_data: dict[str, Any]) -> Podcast | None:
         """Process a single podcast item from the library."""
-        content_type = podcast_data.get("content_delivery_type", "")
-        if content_type not in PODCAST_CONTENT_TYPES:
-            self.logger.debug(
-                "Skipping non-podcast item: %s (%s)",
-                podcast_data.get("title", "Unknown"),
-                content_type,
-            )
-            return None, total_processed + 1
-
         asin = str(podcast_data.get("asin", ""))
         cached_podcast = None
         if asin:
@@ -718,18 +688,16 @@ class AudibleHelper:
 
         try:
             if cached_podcast is not None:
-                podcast = self._parse_podcast(cached_podcast)
-            else:
-                podcast = self._parse_podcast(podcast_data)
-            return podcast, total_processed + 1
+                return self._parse_podcast(cached_podcast)
+            return self._parse_podcast(podcast_data)
         except MediaNotFoundError as exc:
             self.logger.warning(f"Skipping invalid podcast: {exc}")
-            return None, total_processed + 1
+            return None
         except Exception as exc:
             self.logger.warning(
                 f"Error processing podcast {podcast_data.get('asin', 'unknown')}: {exc}"
             )
-            return None, total_processed + 1
+            return None
 
     async def get_library_podcasts(self) -> AsyncGenerator[Podcast, None]:
         """Fetch podcasts from the user's library with pagination."""
@@ -742,57 +710,11 @@ class AudibleHelper:
             "product_extended_attrs",
         ]
 
-        page = 1
-        page_size = 50
-        total_processed = 0
-        max_iterations = 100
-        iteration = 0
-
-        while iteration < max_iterations:
-            iteration += 1
-            self.logger.debug(
-                "Audible: Fetching library page %s for podcasts (processed so far: %s)",
-                page,
-                total_processed,
-            )
-
-            library = await self._call_api(
-                "library",
-                use_cache=False,
-                response_groups=",".join(response_groups),
-                page=page,
-                num_results=page_size,
-            )
-
-            items = library.get("items", [])
-            if not items:
-                self.logger.debug(
-                    "Audible: No more items returned for podcasts (processed %s items)",
-                    total_processed,
-                )
-                break
-
-            podcasts_found_this_page = 0
-            for podcast_data in items:
-                podcast, total_processed = await self._process_podcast_item(
-                    podcast_data, total_processed
-                )
-                if podcast:
-                    yield podcast
-                    podcasts_found_this_page += 1
-
-            self.logger.debug(
-                "Audible: Found %s podcasts on page %s", podcasts_found_this_page, page
-            )
-
-            page += 1
-            if len(items) < page_size:
-                break
-
-        self.logger.info(
-            "Audible: Successfully retrieved podcasts from library (scanned %s items)",
-            total_processed,
-        )
+        async for item in self._fetch_library_items(
+            ",".join(response_groups), PODCAST_CONTENT_TYPES
+        ):
+            if podcast := await self._process_podcast_item(item):
+                yield podcast
 
     async def get_podcast(self, asin: str, use_cache: bool = True) -> Podcast:
         """Fetch full podcast details by ASIN.
@@ -998,8 +920,15 @@ class AudibleHelper:
                 if rel.get("relationship_type") == "parent":
                     parent_asin = rel.get("asin", "")
                     break
+
+            if not parent_asin:
+                self.logger.warning(
+                    "No parent_asin found for podcast episode %s; parent podcast is unknown",
+                    asin,
+                )
+
             podcast_ref = ItemMapping(
-                item_id=parent_asin or asin,
+                item_id=parent_asin or "",
                 provider=self.provider_instance,
                 name="Unknown Podcast",
                 media_type=MediaType.PODCAST,
@@ -1042,15 +971,9 @@ class AudibleHelper:
         Returns dict mapping author ASIN to author name.
         """
         authors: dict[str, str] = {}
-        library = await self._call_api(
-            "library",
-            use_cache=True,
-            response_groups="contributors,product_attrs",
-            num_results=1000,
-        )
-        for item in library.get("items", []):
-            if item.get("content_delivery_type") not in AUDIOBOOK_CONTENT_TYPES:
-                continue
+        async for item in self._fetch_library_items(
+            "contributors,product_attrs", AUDIOBOOK_CONTENT_TYPES
+        ):
             for author in item.get("authors") or []:
                 asin = author.get("asin")
                 name = author.get("name")
@@ -1064,15 +987,9 @@ class AudibleHelper:
         Returns dict mapping series ASIN to series title.
         """
         series: dict[str, str] = {}
-        library = await self._call_api(
-            "library",
-            use_cache=True,
-            response_groups="series,product_attrs",
-            num_results=1000,
-        )
-        for item in library.get("items", []):
-            if item.get("content_delivery_type") not in AUDIOBOOK_CONTENT_TYPES:
-                continue
+        async for item in self._fetch_library_items(
+            "series,product_attrs", AUDIOBOOK_CONTENT_TYPES
+        ):
             for s in item.get("series") or []:
                 asin = s.get("asin")
                 title = s.get("title")
@@ -1086,15 +1003,9 @@ class AudibleHelper:
         Returns dict mapping narrator ASIN to narrator name.
         """
         narrators: dict[str, str] = {}
-        library = await self._call_api(
-            "library",
-            use_cache=True,
-            response_groups="contributors,product_attrs",
-            num_results=1000,
-        )
-        for item in library.get("items", []):
-            if item.get("content_delivery_type") not in AUDIOBOOK_CONTENT_TYPES:
-                continue
+        async for item in self._fetch_library_items(
+            "contributors,product_attrs", AUDIOBOOK_CONTENT_TYPES
+        ):
             for narrator in item.get("narrators") or []:
                 asin = narrator.get("asin")
                 name = narrator.get("name")
@@ -1105,15 +1016,7 @@ class AudibleHelper:
     async def get_genres(self) -> set[str]:
         """Get all unique genres from the library."""
         genres: set[str] = set()
-        library = await self._call_api(
-            "library",
-            use_cache=True,
-            response_groups="product_attrs",
-            num_results=1000,
-        )
-        for item in library.get("items", []):
-            if item.get("content_delivery_type") not in AUDIOBOOK_CONTENT_TYPES:
-                continue
+        async for item in self._fetch_library_items("product_attrs", AUDIOBOOK_CONTENT_TYPES):
             for keyword in item.get("thesaurus_subject_keywords") or []:
                 genres.add(keyword.replace("_", " ").replace("-", " ").title())
         return genres
@@ -1121,15 +1024,7 @@ class AudibleHelper:
     async def get_publishers(self) -> set[str]:
         """Get all unique publishers from the library."""
         publishers: set[str] = set()
-        library = await self._call_api(
-            "library",
-            use_cache=True,
-            response_groups="product_attrs",
-            num_results=1000,
-        )
-        for item in library.get("items", []):
-            if item.get("content_delivery_type") not in AUDIOBOOK_CONTENT_TYPES:
-                continue
+        async for item in self._fetch_library_items("product_attrs", AUDIOBOOK_CONTENT_TYPES):
             publisher = item.get("publisher_name")
             if publisher:
                 publishers.add(publisher)
@@ -1138,15 +1033,9 @@ class AudibleHelper:
     async def get_audiobooks_by_author(self, author_asin: str) -> list[Audiobook]:
         """Get all audiobooks by a specific author, sorted by release date."""
         audiobooks: list[tuple[str, Audiobook]] = []
-        library = await self._call_api(
-            "library",
-            use_cache=True,
-            response_groups="contributors,media,product_attrs,product_desc,series",
-            num_results=1000,
-        )
-        for item in library.get("items", []):
-            if item.get("content_delivery_type") not in AUDIOBOOK_CONTENT_TYPES:
-                continue
+        async for item in self._fetch_library_items(
+            "contributors,media,product_attrs,product_desc,series", AUDIOBOOK_CONTENT_TYPES
+        ):
             for author in item.get("authors") or []:
                 if author.get("asin") == author_asin:
                     release_date = item.get("release_date") or "0000-00-00"
@@ -1158,15 +1047,9 @@ class AudibleHelper:
     async def get_audiobooks_by_narrator(self, narrator_asin: str) -> list[Audiobook]:
         """Get all audiobooks by a specific narrator, sorted by release date."""
         audiobooks: list[tuple[str, Audiobook]] = []
-        library = await self._call_api(
-            "library",
-            use_cache=True,
-            response_groups="contributors,media,product_attrs,product_desc,series",
-            num_results=1000,
-        )
-        for item in library.get("items", []):
-            if item.get("content_delivery_type") not in AUDIOBOOK_CONTENT_TYPES:
-                continue
+        async for item in self._fetch_library_items(
+            "contributors,media,product_attrs,product_desc,series", AUDIOBOOK_CONTENT_TYPES
+        ):
             for narrator in item.get("narrators") or []:
                 if narrator.get("asin") == narrator_asin:
                     release_date = item.get("release_date") or "0000-00-00"
@@ -1180,15 +1063,9 @@ class AudibleHelper:
         audiobooks: list[tuple[str, Audiobook]] = []
         genre_key = genre.lower().replace(" ", "_")
         genre_key_alt = genre.lower().replace(" ", "-")
-        library = await self._call_api(
-            "library",
-            use_cache=True,
-            response_groups="contributors,media,product_attrs,product_desc,series",
-            num_results=1000,
-        )
-        for item in library.get("items", []):
-            if item.get("content_delivery_type") not in AUDIOBOOK_CONTENT_TYPES:
-                continue
+        async for item in self._fetch_library_items(
+            "contributors,media,product_attrs,product_desc,series", AUDIOBOOK_CONTENT_TYPES
+        ):
             keywords = item.get("thesaurus_subject_keywords") or []
             if genre_key in keywords or genre_key_alt in keywords:
                 release_date = item.get("release_date") or "0000-00-00"
@@ -1199,15 +1076,9 @@ class AudibleHelper:
     async def get_audiobooks_by_publisher(self, publisher: str) -> list[Audiobook]:
         """Get all audiobooks from a specific publisher, sorted by release date."""
         audiobooks: list[tuple[str, Audiobook]] = []
-        library = await self._call_api(
-            "library",
-            use_cache=True,
-            response_groups="contributors,media,product_attrs,product_desc,series",
-            num_results=1000,
-        )
-        for item in library.get("items", []):
-            if item.get("content_delivery_type") not in AUDIOBOOK_CONTENT_TYPES:
-                continue
+        async for item in self._fetch_library_items(
+            "contributors,media,product_attrs,product_desc,series", AUDIOBOOK_CONTENT_TYPES
+        ):
             if item.get("publisher_name") == publisher:
                 release_date = item.get("release_date") or "0000-00-00"
                 audiobooks.append((release_date, self._parse_audiobook(item)))
@@ -1217,15 +1088,9 @@ class AudibleHelper:
     async def get_audiobooks_by_series(self, series_asin: str) -> list[Audiobook]:
         """Get all audiobooks in a specific series, ordered by sequence."""
         audiobooks: list[tuple[float, Audiobook]] = []
-        library = await self._call_api(
-            "library",
-            use_cache=True,
-            response_groups="contributors,media,product_attrs,product_desc,series",
-            num_results=1000,
-        )
-        for item in library.get("items", []):
-            if item.get("content_delivery_type") not in AUDIOBOOK_CONTENT_TYPES:
-                continue
+        async for item in self._fetch_library_items(
+            "contributors,media,product_attrs,product_desc,series", AUDIOBOOK_CONTENT_TYPES
+        ):
             for s in item.get("series") or []:
                 if s.get("asin") == series_asin:
                     sequence = s.get("sequence")

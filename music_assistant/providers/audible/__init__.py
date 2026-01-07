@@ -7,6 +7,7 @@ import os
 from collections.abc import AsyncGenerator, Sequence
 from logging import getLevelName
 from typing import TYPE_CHECKING, cast
+from urllib.parse import quote, unquote
 from uuid import uuid4
 
 import audible
@@ -352,32 +353,32 @@ class Audibleprovider(MusicProvider):
             if len(parts) == 1:
                 return await self._browse_authors(path)
             # Specific author's books
-            return await self._browse_author_books(parts[1])
+            return await self._browse_author_books(unquote(parts[1]))
 
         # Series listing
         if parts[0] == "series":
             if len(parts) == 1:
                 return await self._browse_series(path)
             # Specific series' books
-            return await self._browse_series_books(parts[1])
+            return await self._browse_series_books(unquote(parts[1]))
 
         # Narrators listing
         if parts[0] == "narrators":
             if len(parts) == 1:
                 return await self._browse_narrators(path)
-            return await self._browse_narrator_books(parts[1])
+            return await self._browse_narrator_books(unquote(parts[1]))
 
         # Genres listing
         if parts[0] == "genres":
             if len(parts) == 1:
                 return await self._browse_genres(path)
-            return await self._browse_genre_books(parts[1])
+            return await self._browse_genre_books(unquote(parts[1]))
 
         # Publishers listing
         if parts[0] == "publishers":
             if len(parts) == 1:
                 return await self._browse_publishers(path)
-            return await self._browse_publisher_books(parts[1])
+            return await self._browse_publisher_books(unquote(parts[1]))
 
         # Fall back to base implementation for audiobooks/podcasts
         return await super().browse(path)
@@ -438,7 +439,7 @@ class Audibleprovider(MusicProvider):
             BrowseFolder(
                 item_id=asin,
                 provider=self.instance_id,
-                path=f"{base_path}/{asin}",
+                path=f"{base_path}/{quote(asin)}",
                 name=name,
             )
             for asin, name in sorted(authors.items(), key=lambda x: x[1])
@@ -455,7 +456,7 @@ class Audibleprovider(MusicProvider):
             BrowseFolder(
                 item_id=asin,
                 provider=self.instance_id,
-                path=f"{base_path}/{asin}",
+                path=f"{base_path}/{quote(asin)}",
                 name=title,
             )
             for asin, title in sorted(series.items(), key=lambda x: x[1])
@@ -472,7 +473,7 @@ class Audibleprovider(MusicProvider):
             BrowseFolder(
                 item_id=asin,
                 provider=self.instance_id,
-                path=f"{base_path}/{asin}",
+                path=f"{base_path}/{quote(asin)}",
                 name=name,
             )
             for asin, name in sorted(narrators.items(), key=lambda x: x[1])
@@ -489,7 +490,7 @@ class Audibleprovider(MusicProvider):
             BrowseFolder(
                 item_id=genre,
                 provider=self.instance_id,
-                path=f"{base_path}/{genre}",
+                path=f"{base_path}/{quote(genre)}",
                 name=genre,
             )
             for genre in sorted(genres)
@@ -506,7 +507,7 @@ class Audibleprovider(MusicProvider):
             BrowseFolder(
                 item_id=publisher,
                 provider=self.instance_id,
-                path=f"{base_path}/{publisher}",
+                path=f"{base_path}/{quote(publisher)}",
                 name=publisher,
             )
             for publisher in sorted(publishers)
