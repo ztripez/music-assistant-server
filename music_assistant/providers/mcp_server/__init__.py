@@ -54,7 +54,7 @@ CONF_LIBRARY_RESOURCES = "library_resources"
 CONF_PROMPTS = "prompts"
 
 # Default port for MCP server
-DEFAULT_PORT = 8096
+DEFAULT_PORT = 8196
 
 SUPPORTED_FEATURES: set[object] = set()
 

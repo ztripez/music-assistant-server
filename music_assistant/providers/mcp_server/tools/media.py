@@ -277,14 +277,12 @@ def register_audiobook_tools(mcp: FastMCP, mass: MusicAssistant) -> None:
         :param chapter: Optional chapter number to start from (1-based).
         """
         try:
-            from music_assistant_models.enums import QueueOption  # noqa: PLC0415
-
             # Convert chapter to string for play_media (it will be parsed internally)
             start_item = str(chapter) if chapter is not None else None
             await mass.player_queues.play_media(
                 queue_id=player_id,
                 media=audiobook_uri,
-                option=QueueOption.PLAY,
+                option=None,
                 radio_mode=False,
                 start_item=start_item,
             )
