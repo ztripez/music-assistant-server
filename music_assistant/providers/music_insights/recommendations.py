@@ -20,8 +20,17 @@ if TYPE_CHECKING:
 
     from .sidecar_embeddings import SidecarEmbeddings
 
-# Cache key for storing user interactions
-INTERACTIONS_CACHE_KEY = "music_insights_interactions"
+# Cache key prefix for storing user interactions (per-user)
+INTERACTIONS_CACHE_KEY_PREFIX = "music_insights_interactions_"
+
+# Default user ID when no user context is available
+DEFAULT_USER_ID = "default"
+
+
+def _get_cache_key(user_id: str | None) -> str:
+    """Get the cache key for a specific user's interactions."""
+    uid = user_id or DEFAULT_USER_ID
+    return f"{INTERACTIONS_CACHE_KEY_PREFIX}{uid}"
 
 
 class RecommendationEngine:
@@ -39,7 +48,9 @@ class RecommendationEngine:
         self.embeddings = embeddings
         self._player_current_track: dict[str, str | None] = {}
 
-    async def record_interaction(self, event: MediaItemPlaybackProgressReport) -> None:
+    async def record_interaction(
+        self, event: MediaItemPlaybackProgressReport, user_id: str | None = None
+    ) -> None:
         """
         Record a user interaction event (track playback progress).
 
@@ -47,6 +58,7 @@ class RecommendationEngine:
         including timestamp, URI, play duration, and whether the track was fully played.
 
         :param event: The MediaItemPlaybackProgressReport event.
+        :param user_id: User ID for multi-user setups (defaults to event.userid or "default").
         """
         if event.media_type != MediaType.TRACK:
             return
@@ -54,9 +66,13 @@ class RecommendationEngine:
         if event.mbid is None:
             return
 
+        # Use user_id from event if not provided explicitly
+        uid = user_id or event.userid or DEFAULT_USER_ID
+        cache_key = _get_cache_key(uid)
+
         # Get existing interactions from cache
         interactions: dict[str, dict[str, float | str | bool]] = await self.mass.cache.get(
-            INTERACTIONS_CACHE_KEY, default={}
+            cache_key, default={}
         )
 
         # Create or update interaction record
@@ -77,8 +93,8 @@ class RecommendationEngine:
         interactions[event.mbid] = interaction
 
         # Store back to cache
-        await self.mass.cache.set(INTERACTIONS_CACHE_KEY, interactions)
-        self.logger.debug("Recorded interaction: %s", event.mbid)
+        await self.mass.cache.set(cache_key, interactions)
+        self.logger.debug("Recorded interaction for user %s: %s", uid, event.mbid)
 
     async def get_recommendations(
         self,
@@ -95,12 +111,17 @@ class RecommendationEngine:
         :param user_id: User ID for multi-user setups (defaults to "default").
         :return: A list of RecommendationFolder objects with recommended tracks.
         """
-        # Get interactions from cache
+        # Use provided user_id or default
+        uid = user_id or DEFAULT_USER_ID
+        cache_key = _get_cache_key(uid)
+
+        # Get interactions from cache for this user
         interactions: dict[str, dict[str, float | str | bool]] = await self.mass.cache.get(
-            INTERACTIONS_CACHE_KEY, default={}
+            cache_key, default={}
         )
 
         if not interactions:
+            self.logger.debug("No interactions found for user %s", uid)
             return []
 
         # Convert to sidecar format
@@ -118,9 +139,6 @@ class RecommendationEngine:
                     "duration": float(meta.get("duration", 1)),
                 }
             )
-
-        # Use user_id from MA user profile or fallback to "default"
-        uid = user_id or "default"
 
         # Compute profile and get recommendations
         try:
@@ -165,7 +183,11 @@ class RecommendationEngine:
 
 
 class InsightScrobbler(ScrobblerHelper):
-    """Handles playback event handling for recommendations."""
+    """Handles playback event handling for recommendations.
+
+    Records user interactions from playback events to build per-user taste profiles.
+    Uses report.userid to track interactions separately for each user.
+    """
 
     def __init__(self, logger: logging.Logger, rec: RecommendationEngine) -> None:
         """
@@ -181,7 +203,9 @@ class InsightScrobbler(ScrobblerHelper):
         """
         Handle the 'now playing' update event.
 
-        :param report: The playback progress report.
+        Records the interaction for the user specified in report.userid.
+
+        :param report: The playback progress report (includes userid).
         """
         await self.rec.record_interaction(report)
 
@@ -189,6 +213,8 @@ class InsightScrobbler(ScrobblerHelper):
         """
         Handle the 'scrobble' event (track finished or played significantly).
 
-        :param report: The playback progress report.
+        Records the interaction for the user specified in report.userid.
+
+        :param report: The playback progress report (includes userid).
         """
         await self.rec.record_interaction(report)

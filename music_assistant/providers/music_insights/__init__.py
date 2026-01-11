@@ -20,6 +20,7 @@ from music_assistant_models.media_items import (
 )
 from music_assistant_models.unique_list import UniqueList
 
+from music_assistant.controllers.webserver.helpers.auth_middleware import get_current_user
 from music_assistant.models.music_provider import MusicProvider
 
 from .audio_streamer import AudioStreamer
@@ -387,8 +388,11 @@ class MusicInsightProvider(MusicProvider):
         Get this provider's recommendations.
 
         Returns an actual (and often personalised) list of recommendations.
+        Uses the current user context to fetch per-user recommendations.
         """
-        return await self.recommendation_engine.get_recommendations()
+        user = get_current_user()
+        user_id = user.user_id if user else None
+        return await self.recommendation_engine.get_recommendations(user_id=user_id)
 
     async def _rebuild_embeddings(self) -> None:
         """
