@@ -278,6 +278,7 @@ class MusicInsightProvider(MusicProvider):
         Handle library update events (add, update, delete) for tracks.
 
         Upserts or removes track embeddings via the sidecar.
+        Also detects favorite/unfavorite changes and records them as signals.
 
         :param event: The MassEvent containing track data and event type.
         """
@@ -288,6 +289,17 @@ class MusicInsightProvider(MusicProvider):
 
         if event.event in (EventType.MEDIA_ITEM_ADDED, EventType.MEDIA_ITEM_UPDATED):
             await self.embeddings.upsert_track(track)
+
+            # Check for favorite status changes (MEDIA_ITEM_UPDATED)
+            if event.event == EventType.MEDIA_ITEM_UPDATED:
+                # Use mbid as track_id for interactions (same as playback events)
+                track_id = track.mbid or str(track.item_id)
+                await self.recommendation_engine.check_and_record_favorite_change(
+                    track_id=track_id,
+                    current_favorite=track.favorite,
+                    user_id=None,  # TODO: get user from context when multi-user is implemented
+                )
+
         elif event.event == EventType.MEDIA_ITEM_DELETED:
             await self.embeddings.remove_track(track.item_id)
 

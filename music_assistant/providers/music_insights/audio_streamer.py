@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -13,6 +15,9 @@ import msgpack
 
 if TYPE_CHECKING:
     from music_assistant.mass import MusicAssistant
+
+# Timeout for stale sessions (5 minutes without activity)
+SESSION_TIMEOUT_SECONDS = 300
 
 
 @dataclass
@@ -25,6 +30,7 @@ class StreamSession:
     queue_id: str
     bytes_sent: int = 0
     buffer: bytearray = field(default_factory=bytearray)
+    last_activity: float = field(default_factory=time.time)
 
 
 class AudioStreamer:
@@ -57,6 +63,7 @@ class AudioStreamer:
         self._http_session: aiohttp.ClientSession | None = None
         self._unsubscribe: Callable[[], None] | None = None
         self._send_lock = asyncio.Lock()
+        self._cleanup_task: asyncio.Task[None] | None = None
 
         # Buffer ~0.5 second of audio before sending over WebSocket
         # (reduces message overhead while keeping latency low)
@@ -78,6 +85,7 @@ class AudioStreamer:
         """Start listening for audio frames."""
         self._http_session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60))
         self._unsubscribe = self.mass.subscribe_audio_frames(self._on_audio_frame)
+        self._cleanup_task = asyncio.create_task(self._cleanup_stale_sessions_loop())
         self.logger.info("Audio streamer started (WebSocket mode), listening for audio frames")
 
     async def stop(self) -> None:
@@ -85,6 +93,13 @@ class AudioStreamer:
         if self._unsubscribe:
             self._unsubscribe()
             self._unsubscribe = None
+
+        # Cancel cleanup task
+        if self._cleanup_task:
+            self._cleanup_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._cleanup_task
+            self._cleanup_task = None
 
         # Close all active WebSocket connections
         for queue_item_id in list(self._sessions.keys()):
@@ -131,10 +146,17 @@ class AudioStreamer:
 
         # Add chunk to buffer
         session.buffer.extend(chunk)
+        session.last_activity = time.time()
 
         # Send when buffer is large enough
         if len(session.buffer) >= self.min_buffer_bytes:
-            await self._send_buffer(session)
+            if not await self._send_buffer(session):
+                # WebSocket failed, end this session
+                self.logger.warning(
+                    "WebSocket send failed for track %s, ending session",
+                    session.track_id,
+                )
+                await self._end_session(queue_item_id)
 
     async def _start_session(
         self,
@@ -263,8 +285,11 @@ class AudioStreamer:
             session.bytes_sent += len(data)
             return True
         except Exception as err:
-            self.logger.debug("Failed to send audio data: %s", err)
-            # WebSocket is likely closed
+            self.logger.warning(
+                "Failed to send audio data for track %s: %s",
+                session.track_id,
+                err,
+            )
             return False
 
     async def end_session_for_track(self, queue_item_id: str, store: bool = True) -> None:
@@ -333,3 +358,38 @@ class AudioStreamer:
             )
         except Exception as err:
             self.logger.debug("Error closing WebSocket: %s", err)
+
+    async def _cleanup_stale_sessions_loop(self) -> None:
+        """
+        Background task that periodically cleans up stale sessions.
+
+        Sessions that haven't received audio frames for SESSION_TIMEOUT_SECONDS
+        are considered stale and will be closed.
+        """
+        while True:
+            try:
+                await asyncio.sleep(60)  # Check every minute
+                await self._cleanup_stale_sessions()
+            except asyncio.CancelledError:
+                break
+            except Exception as err:
+                self.logger.debug("Error in cleanup loop: %s", err)
+
+    async def _cleanup_stale_sessions(self) -> None:
+        """Clean up sessions that have been inactive for too long."""
+        now = time.time()
+        stale_sessions = [
+            queue_item_id
+            for queue_item_id, session in self._sessions.items()
+            if now - session.last_activity > SESSION_TIMEOUT_SECONDS
+        ]
+
+        for queue_item_id in stale_sessions:
+            session = self._sessions.get(queue_item_id)
+            if session:
+                self.logger.warning(
+                    "Cleaning up stale session: track=%s, inactive for %.0fs",
+                    session.track_id,
+                    now - session.last_activity,
+                )
+                await self._end_session(queue_item_id)

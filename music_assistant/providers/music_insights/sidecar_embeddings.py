@@ -205,7 +205,9 @@ class SidecarEmbeddings:
             try:
                 # Extract base track ID (remove any collection suffix)
                 base_id = result.track_id.split("#")[0]
-                track = await self.mass.music.tracks.get(base_id, provider_instance_id_or_domain="")
+                track = await self.mass.music.tracks.get(
+                    base_id, provider_instance_id_or_domain="library"
+                )
                 if track:
                     tracks.append(track)
             except Exception as e:
@@ -218,6 +220,7 @@ class SidecarEmbeddings:
         search_query: str,
         limit: int = 50,
         cutoff: float = 0.4,
+        filter_: dict[str, Any] | None = None,
     ) -> UniqueList[Track]:
         """
         Search for tracks based on a text query.
@@ -225,13 +228,21 @@ class SidecarEmbeddings:
         :param search_query: The text query string.
         :param limit: The maximum number of results to return.
         :param cutoff: Minimum similarity score (0-1, higher is more similar).
+        :param filter_: Optional filter dict with keys like:
+            - moods: list[str] - include tracks with any of these moods
+            - exclude_moods: list[str] - exclude tracks with these moods
+            - min_valence/max_valence: float - valence range (-1 to 1)
+            - min_arousal/max_arousal: float - arousal range (-1 to 1)
+            - artists: list[str] - filter by artists
+            - genres: list[str] - filter by genres
+            - exclude_ids: list[str] - exclude specific track IDs
         :return: A UniqueList of matching Track objects.
         """
         if not self._connected:
             return UniqueList()
 
         try:
-            results = await self.client.search(search_query, limit=limit)
+            results = await self.client.search(search_query, limit=limit, filter_=filter_)
         except Exception as e:
             self.logger.warning("Search failed: %s", e)
             return UniqueList()
@@ -244,7 +255,9 @@ class SidecarEmbeddings:
         for result in filtered_results[:limit]:
             try:
                 base_id = result.track_id.split("#")[0]
-                track = await self.mass.music.tracks.get(base_id, provider_instance_id_or_domain="")
+                track = await self.mass.music.tracks.get(
+                    base_id, provider_instance_id_or_domain="library"
+                )
                 if track:
                     tracks.append(track)
             except Exception as e:
@@ -432,7 +445,7 @@ class SidecarEmbeddings:
         user_id: str,
         limit: int = 25,
         exclude_ids: list[str] | None = None,
-        mood_filter: dict[str, Any] | None = None,
+        filter_: dict[str, Any] | None = None,
     ) -> list[Track]:
         """
         Get personalized recommendations based on user's taste profile.
@@ -440,7 +453,13 @@ class SidecarEmbeddings:
         :param user_id: User ID to get recommendations for.
         :param limit: Maximum number of recommendations (default: 25).
         :param exclude_ids: Track IDs to exclude from results.
-        :param mood_filter: Optional mood filter (unused in Phase 1).
+        :param filter_: Optional filter dict with keys like:
+            - moods: list[str] - include tracks with any of these moods
+            - exclude_moods: list[str] - exclude tracks with these moods
+            - min_valence/max_valence: float - valence range (-1 to 1)
+            - min_arousal/max_arousal: float - arousal range (-1 to 1)
+            - artists: list[str] - filter by artists
+            - genres: list[str] - filter by genres
         :return: List of recommended Track objects.
         """
         if not self._connected:
@@ -451,6 +470,7 @@ class SidecarEmbeddings:
                 user_id=user_id,
                 limit=limit,
                 exclude_ids=exclude_ids,
+                filter_=filter_,
             )
         except Exception as e:
             self.logger.warning("Failed to get recommendations for %s: %s", user_id, e)
@@ -461,7 +481,9 @@ class SidecarEmbeddings:
         for item in data.get("tracks", []):
             try:
                 base_id = item["track_id"].split("#")[0]
-                track = await self.mass.music.tracks.get(base_id, provider_instance_id_or_domain="")
+                track = await self.mass.music.tracks.get(
+                    base_id, provider_instance_id_or_domain="library"
+                )
                 if track:
                     tracks.append(track)
             except Exception as e:

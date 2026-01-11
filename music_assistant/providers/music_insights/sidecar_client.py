@@ -376,43 +376,41 @@ class SidecarClient:
         self,
         query: str,
         limit: int = 25,
+        filter_: dict[str, Any] | None = None,
     ) -> list[SearchResult]:
         """
         Search for tracks using a text query.
 
-        Generates an embedding for the query and searches the vector store.
+        Uses the text search endpoint which embeds the query and searches in one call.
 
         :param query: Text search query.
         :param limit: Maximum number of results.
+        :param filter_: Optional filter dict with keys like:
+            - moods: list[str] - include tracks with any of these moods
+            - exclude_moods: list[str] - exclude tracks with these moods
+            - min_valence/max_valence: float - valence range (-1 to 1)
+            - min_arousal/max_arousal: float - arousal range (-1 to 1)
+            - artists: list[str] - filter by artists
+            - genres: list[str] - filter by genres
+            - exclude_ids: list[str] - exclude specific track IDs
         :return: List of search results with scores.
         """
         session = await self._get_session()
 
-        # First, generate embedding for the query
-        embed_url = f"{self.base_url}/api/v1/embed/text"
-        embed_payload = {"text": query}
-        embed_data = msgpack.packb(embed_payload)
-
-        async with session.post(embed_url, data=embed_data) as resp:
-            if resp.status != 200:
-                body = await self._get_error_body(resp)
-                raise RuntimeError(f"Failed to embed query: {resp.status} - {body}")
-            embed_result = msgpack.unpackb(await resp.read(), raw=False)
-            embedding = embed_result["embedding"]
-
-        # Then search with the embedding
-        search_url = f"{self.base_url}/api/v1/tracks/search"
-        search_payload = {
-            "embedding": embedding,
-            "collection": "text",
+        url = f"{self.base_url}/api/v1/tracks/search-text"
+        payload: dict[str, Any] = {
+            "query": query,
             "limit": limit,
         }
-        search_data = msgpack.packb(search_payload)
+        if filter_:
+            payload["filter"] = filter_
 
-        async with session.post(search_url, data=search_data) as resp:
+        data = msgpack.packb(payload)
+
+        async with session.post(url, data=data) as resp:
             if resp.status != 200:
                 body = await self._get_error_body(resp)
-                raise RuntimeError(f"Search failed: {resp.status} - {body}")
+                raise RuntimeError(f"Text search failed: {resp.status} - {body}")
             result = msgpack.unpackb(await resp.read(), raw=False)
 
         return [
@@ -798,6 +796,7 @@ class SidecarClient:
         user_id: str,
         limit: int = 25,
         exclude_ids: list[str] | None = None,
+        filter_: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """
         Get personalized recommendations based on taste profile.
@@ -805,17 +804,25 @@ class SidecarClient:
         :param user_id: User ID to get recommendations for.
         :param limit: Maximum number of recommendations.
         :param exclude_ids: Track IDs to exclude from results.
+        :param filter_: Optional filter dict with keys like:
+            - moods: list[str] - include tracks with any of these moods
+            - exclude_moods: list[str] - exclude tracks with these moods
+            - min_valence/max_valence: float - valence range (-1 to 1)
+            - min_arousal/max_arousal: float - arousal range (-1 to 1)
+            - artists: list[str] - filter by artists
+            - genres: list[str] - filter by genres
         :return: Response with tracks list and profile_confidence.
         """
         session = await self._get_session()
         url = f"{self.base_url}/api/v1/users/{user_id}/recommend"
 
-        payload = {
+        payload: dict[str, Any] = {
             "limit": limit,
             "profile_type": {"type": "Global"},  # Adjacently tagged enum format
             "exclude_ids": exclude_ids or [],
-            "filter": {},
         }
+        if filter_:
+            payload["filter"] = filter_
 
         data = msgpack.packb(payload)
         async with session.post(url, data=data) as resp:

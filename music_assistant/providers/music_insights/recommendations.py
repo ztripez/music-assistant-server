@@ -23,14 +23,26 @@ if TYPE_CHECKING:
 # Cache key prefix for storing user interactions (per-user)
 INTERACTIONS_CACHE_KEY_PREFIX = "music_insights_interactions_"
 
+# Cache key prefix for storing track favorite states (per-user)
+FAVORITES_CACHE_KEY_PREFIX = "music_insights_favorites_"
+
 # Default user ID when no user context is available
 DEFAULT_USER_ID = "default"
+
+# Skip threshold in seconds (industry standard from Spotify/Apple/Deezer)
+SKIP_THRESHOLD_SECONDS = 30
 
 
 def _get_cache_key(user_id: str | None) -> str:
     """Get the cache key for a specific user's interactions."""
     uid = user_id or DEFAULT_USER_ID
     return f"{INTERACTIONS_CACHE_KEY_PREFIX}{uid}"
+
+
+def _get_favorites_cache_key(user_id: str | None) -> str:
+    """Get the cache key for a specific user's favorite states."""
+    uid = user_id or DEFAULT_USER_ID
+    return f"{FAVORITES_CACHE_KEY_PREFIX}{uid}"
 
 
 class RecommendationEngine:
@@ -95,6 +107,90 @@ class RecommendationEngine:
         # Store back to cache
         await self.mass.cache.set(cache_key, interactions)
         self.logger.debug("Recorded interaction for user %s: %s", uid, event.mbid)
+
+    async def record_favorite_signal(
+        self, track_id: str, is_favorite: bool, user_id: str | None = None
+    ) -> None:
+        """
+        Record a favorite or unfavorite signal for a track.
+
+        Favorite signals have weight 2.0 (strongest positive signal).
+        Unfavorite is treated as a dislike signal with weight -1.0.
+
+        :param track_id: The track ID (mbid or item_id).
+        :param is_favorite: True if favorited, False if unfavorited.
+        :param user_id: User ID for multi-user setups.
+        """
+        uid = user_id or DEFAULT_USER_ID
+        cache_key = _get_cache_key(uid)
+
+        interactions: dict[str, dict[str, float | str | bool]] = await self.mass.cache.get(
+            cache_key, default={}
+        )
+
+        signal_type = "favorite" if is_favorite else "dislike"
+
+        interaction: dict[str, float | str | bool] = {
+            "timestamp": float(time.time()),
+            "signal_type": signal_type,
+            "is_favorite": is_favorite,
+            "seconds_played": 0.0,
+            "duration": 0.0,
+            "score": 0.0,
+        }
+
+        # Merge with existing playback data if present
+        if track_id in interactions:
+            existing = interactions[track_id]
+            interaction["seconds_played"] = existing.get("seconds_played", 0.0)
+            interaction["duration"] = existing.get("duration", 0.0)
+            interaction["score"] = existing.get("score", 0.0)
+
+        interactions[track_id] = interaction
+
+        await self.mass.cache.set(cache_key, interactions)
+        self.logger.info(
+            "Recorded %s signal for user %s: track=%s",
+            signal_type,
+            uid,
+            track_id,
+        )
+
+    async def check_and_record_favorite_change(
+        self, track_id: str, current_favorite: bool, user_id: str | None = None
+    ) -> bool:
+        """
+        Check if favorite status changed and record signal if it did.
+
+        Compares current favorite status with cached previous status.
+        Records favorite/dislike signal only when status actually changes.
+
+        :param track_id: The track ID.
+        :param current_favorite: Current favorite status.
+        :param user_id: User ID for multi-user setups.
+        :return: True if a signal was recorded (status changed), False otherwise.
+        """
+        uid = user_id or DEFAULT_USER_ID
+        favorites_cache_key = _get_favorites_cache_key(uid)
+
+        # Get cached favorite states
+        favorites: dict[str, bool] = await self.mass.cache.get(favorites_cache_key, default={})
+
+        previous_favorite = favorites.get(track_id)
+
+        # Only record if status actually changed
+        if previous_favorite is not None and previous_favorite != current_favorite:
+            await self.record_favorite_signal(track_id, current_favorite, uid)
+            favorites[track_id] = current_favorite
+            await self.mass.cache.set(favorites_cache_key, favorites)
+            return True
+
+        # Update cache with current status (for first-time or unchanged)
+        if previous_favorite is None:
+            favorites[track_id] = current_favorite
+            await self.mass.cache.set(favorites_cache_key, favorites)
+
+        return False
 
     async def get_recommendations(
         self,
@@ -165,21 +261,43 @@ class RecommendationEngine:
         """
         Classify interaction as a signal type for the taste profile API.
 
+        Uses industry-standard thresholds:
+        - Skip: < 30 seconds played (Spotify/Apple/Deezer standard)
+        - Partial play: >= 30s but < 50% of track
+        - Full play: >= 50% or marked as fully_played
+        - Repeat: score >= 2.0 (multiple plays)
+        - Favorite/Dislike: explicit signals stored in signal_type
+
         :param meta: Interaction metadata dict.
-        :return: Signal type string (full_play, partial_play, skip, repeat).
+        :return: Signal type string (full_play, partial_play, skip, repeat, favorite, dislike).
         """
+        # Check for explicit signal types first (favorite/dislike)
+        explicit_signal = meta.get("signal_type")
+        if explicit_signal in ("favorite", "dislike"):
+            return str(explicit_signal)
+
         fully_played = meta.get("fully_played", False)
         seconds_played = float(meta.get("seconds_played", 0))
         duration = float(meta.get("duration", 1))
         score = float(meta.get("score", 0))
 
-        if score >= 2.0:  # Multiple plays
+        # Multiple plays = repeat (strong positive signal)
+        if score >= 2.0:
             return "repeat"
+
+        # Explicit full play flag
         if fully_played:
             return "full_play"
-        if duration > 0 and seconds_played / duration > 0.5:
-            return "partial_play"
-        return "skip"
+
+        # 30-second skip threshold (industry standard)
+        if seconds_played < SKIP_THRESHOLD_SECONDS:
+            return "skip"
+
+        # Partial play if >= 30s but < 50%
+        if duration > 0 and seconds_played / duration >= 0.5:
+            return "full_play"
+
+        return "partial_play"
 
 
 class InsightScrobbler(ScrobblerHelper):
