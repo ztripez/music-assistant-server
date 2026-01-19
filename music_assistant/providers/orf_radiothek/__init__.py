@@ -118,7 +118,8 @@ async def get_config_entries(
     values: dict[str, ConfigValueType] | None = None,
 ) -> tuple[ConfigEntry, ...]:
     """Return provider configuration entries."""
-    values = values or {}  # ruff: noqa: ARG001
+    # ruff: noqa: ARG001
+    values = values or {}
 
     return (
         ConfigEntry(
