@@ -148,7 +148,6 @@ class MusicAssistantMediaStream(MediaStream):
             return None
 
         # Get per-player DSP filter parameters
-        # Convert from internal format to output format
         filter_params = get_player_filter_params(
             mass, player_id, self.internal_format, self.output_format
         )
@@ -396,10 +395,11 @@ class SendspinPlayer(Player):
     async def _run_playback(self, media: PlayerMedia) -> None:
         """Run the actual playback in a background task."""
         try:
+            # Use 32-bit for the main channel: aiosendspin converts per player as needed
             pcm_format = AudioFormat(
-                content_type=ContentType.PCM_S16LE,
+                content_type=ContentType.PCM_S32LE,
                 sample_rate=48000,
-                bit_depth=16,
+                bit_depth=32,
                 channels=2,
             )
             flow_pcm_format = AudioFormat(
@@ -426,7 +426,6 @@ class SendspinPlayer(Player):
             )
 
             # Setup the main channel subscription
-            # aiosendspin only really supports 16-bit for now TODO: upgrade later to 32-bit
             main_channel_gen, main_position = await self.timed_client_stream.get_stream(
                 output_format=pcm_format,
                 filter_params=None,  # TODO: this should probably still include the safety limiter
