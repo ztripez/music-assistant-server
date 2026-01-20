@@ -198,6 +198,8 @@ ignore = [
   "TRY400", # Just annoying, not really useful
   "COM812", # Conflicts with the Ruff formatter
   "ASYNC109", # Not relevant, since we use helpers with configurable timeouts
+  "ASYNC110", # Use `asyncio.Event` instead of awaiting `asyncio.sleep` in a `while` loop
+  "N818", # Just annoying, not really useful
   # TEMPORARY DISABLED rules  # The below rules must be enabled later one-by-one !
   "BLE001",
   "FBT001",
@@ -246,11 +248,9 @@ ignore = [
   "RUF006",
   "TRY300",
   "S608",
-  "N818",
   "S307",
   "B007",
   "ANN204",
-  "ASYNC110",
 ]
 
 select = ["ALL"]
