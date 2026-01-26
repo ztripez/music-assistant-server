@@ -104,11 +104,6 @@ class MusicAssistantMediaStream(MediaStream):
         self.internal_format = internal_format
         self.output_format = output_format
 
-    @property
-    def requires_flow_mode(self) -> bool:
-        """Return if the player requires flow mode."""
-        return True
-
     async def player_channel(
         self,
         player_id: str,
