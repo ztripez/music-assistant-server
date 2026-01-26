@@ -550,7 +550,10 @@ class ConfigController:
             if include_values:
                 result.append(await self.get_player_config(raw_conf["player_id"]))
             else:
-                raw_conf["default_name"] = player.display_name if player else raw_conf.get("name")
+                raw_conf["default_name"] = (
+                    player.display_name if player else raw_conf.get("default_name")
+                )
+                raw_conf["available"] = player.available if player else False
                 result.append(cast("PlayerConfig", PlayerConfig.parse([], raw_conf)))
         return result
 
