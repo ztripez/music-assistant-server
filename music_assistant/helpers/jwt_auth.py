@@ -61,8 +61,6 @@ class JWTHelper:
             "exp": int(expires_at.timestamp()),
             "username": user.username,
             "role": user.role.value,
-            "player_filter": user.player_filter,
-            "provider_filter": user.provider_filter,
             "token_name": token_name,
             "is_long_lived": is_long_lived,
         }
