@@ -1688,7 +1688,8 @@ class ConfigController:
                 type=ConfigEntryType.BOOLEAN,
                 label="Hide this player in the user interface",
                 default_value=player.hidden_by_default,
-                category="advanced",
+                category="generic",
+                advanced=True,
             ),
             # add entry to expose player to HA
             ConfigEntry(
@@ -1697,7 +1698,8 @@ class ConfigController:
                 label="Expose this player to Home Assistant",
                 description="Expose this player to the Home Assistant integration. \n"
                 "If disabled, this player will not be imported into Home Assistant.",
-                category="advanced",
+                category="generic",
+                advanced=True,
                 default_value=player.expose_to_ha_by_default,
             ),
         ]
