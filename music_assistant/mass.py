@@ -40,6 +40,7 @@ from music_assistant.constants import (
     MIN_SCHEMA_VERSION,
     VERBOSE_LOG_LEVEL,
 )
+from music_assistant.controllers.audio_analysis import AudioAnalysisController
 from music_assistant.controllers.cache import CacheController
 from music_assistant.controllers.config import ConfigController
 from music_assistant.controllers.metadata import MetaDataController
@@ -60,6 +61,7 @@ from music_assistant.helpers.util import (
     load_provider_module,
 )
 from music_assistant.models import ProviderInstanceType
+from music_assistant.models.audio_analysis_provider import AudioAnalysisProvider
 from music_assistant.models.music_provider import MusicProvider
 from music_assistant.models.player_provider import PlayerProvider
 
@@ -80,7 +82,9 @@ rename = wrap(os.rename)
 
 EventCallBackType = Callable[[MassEvent], None] | Callable[[MassEvent], Coroutine[Any, Any, None]]
 EventSubscriptionType = tuple[
-    EventCallBackType, tuple[EventType, ...] | None, tuple[str, ...] | None
+    EventCallBackType,
+    tuple[EventType, ...] | None,
+    tuple[str, ...] | None,
 ]
 
 LOGGER = logging.getLogger(MASS_LOGGER_NAME)
@@ -90,6 +94,11 @@ PROVIDERS_PATH = os.path.join(BASE_DIR, "providers")
 
 _R = TypeVar("_R")
 _ProviderT = TypeVar("_ProviderT", bound=ProviderInstanceType)
+
+
+def is_audio_analysis_provider(provider: ProviderInstanceType) -> TypeGuard[AudioAnalysisProvider]:
+    """Type guard that returns true if a provider is an audio analysis provider."""
+    return isinstance(provider, AudioAnalysisProvider)
 
 
 def is_music_provider(provider: ProviderInstanceType) -> TypeGuard[MusicProvider]:
@@ -107,6 +116,7 @@ class MusicAssistant:
 
     loop: asyncio.AbstractEventLoop
     aiozc: AsyncZeroconf
+    audio_analysis: AudioAnalysisController
     config: ConfigController
     webserver: WebserverController
     cache: CacheController
@@ -152,7 +162,9 @@ class MusicAssistant:
         # create shared zeroconf instance
         # TODO: enumerate interfaces and enable IPv6 support
         zeroconf_interfaces = self.config.get_raw_core_config_value(
-            "streams", CONF_ZEROCONF_INTERFACES, "default"
+            "streams",
+            CONF_ZEROCONF_INTERFACES,
+            "default",
         )
         self.aiozc = AsyncZeroconf(
             ip_version=IPVersion.V4Only,
@@ -179,6 +191,7 @@ class MusicAssistant:
         self.players = PlayerController(self)
         self.player_queues = PlayerQueuesController(self)
         self.streams = StreamsController(self)
+        self.audio_analysis = AudioAnalysisController(self)
         # add manifests for core controllers
         for controller_name in CONFIGURABLE_CORE_CONTROLLERS:
             controller: CoreController = getattr(self, controller_name)
@@ -287,7 +300,8 @@ class MusicAssistant:
 
     @api_command("providers")
     def get_providers(
-        self, provider_type: ProviderType | None = None
+        self,
+        provider_type: ProviderType | None = None,
     ) -> list[ProviderInstanceType]:
         """
         Return all loaded/running Providers (instances).
@@ -581,7 +595,11 @@ class MusicAssistant:
             msg = f"Command {command} is already registered"
             raise RuntimeError(msg)
         self.command_handlers[command] = APICommandHandler.parse(
-            command, handler, authenticated, required_role, alias
+            command,
+            handler,
+            authenticated,
+            required_role,
+            alias,
         )
 
         def unregister() -> None:
@@ -693,7 +711,10 @@ class MusicAssistant:
                 await provider.unload(is_removed)
             except Exception as err:
                 LOGGER.warning(
-                    "Error while unloading provider %s: %s", provider.name, str(err), exc_info=err
+                    "Error while unloading provider %s: %s",
+                    provider.name,
+                    str(err),
+                    exc_info=err,
                 )
             finally:
                 self._providers.pop(instance_id, None)
@@ -725,7 +746,9 @@ class MusicAssistant:
                         info = AsyncServiceInfo(mdns_type, mdns_name)
                         if await info.async_request(self.aiozc.zeroconf, 3000):
                             await provider.on_mdns_service_state_change(
-                                mdns_name, ServiceStateChange.Added, info
+                                mdns_name,
+                                ServiceStateChange.Added,
+                                info,
                             )
         if isinstance(provider, PlayerProvider):
             await provider.discover_players()
@@ -734,7 +757,7 @@ class MusicAssistant:
         """Report and raise if we are not running in the event loop thread."""
         if self.loop_thread_id != threading.get_ident():
             raise RuntimeError(
-                f"Non-Async operation detected: {what} may only be called from the eventloop."
+                f"Non-Async operation detected: {what} may only be called from the eventloop.",
             )
 
     def _register_api_commands(self) -> None:
@@ -946,7 +969,7 @@ class MusicAssistant:
             self.mass_zc_service_set = True
         except NonUniqueNameException:
             LOGGER.error(
-                "Music Assistant instance with identical name present in the local network!"
+                "Music Assistant instance with identical name present in the local network!",
             )
 
     def _on_mdns_service_state_change(
@@ -1022,7 +1045,7 @@ class MusicAssistant:
                     for x in self.providers
                     if not (is_music_provider(x) and x.is_streaming_provider)
                 },
-            }
+            },
         )
 
     async def _setup_storage(self) -> None:

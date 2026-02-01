@@ -382,7 +382,10 @@ class StreamsController(CoreController):
         if not player_id:
             player_id = queue_item.queue_id
         conf_output_codec = await self.mass.config.get_player_config_value(
-            player_id, CONF_OUTPUT_CODEC, default="flac", return_type=str
+            player_id,
+            CONF_OUTPUT_CODEC,
+            default="flac",
+            return_type=str,
         )
         output_codec = ContentType.try_parse(conf_output_codec or "flac")
         fmt = output_codec.value
@@ -422,11 +425,14 @@ class StreamsController(CoreController):
         if not queue_item.streamdetails:
             try:
                 queue_item.streamdetails = await get_stream_details(
-                    mass=self.mass, queue_item=queue_item
+                    mass=self.mass,
+                    queue_item=queue_item,
                 )
             except Exception as e:
                 self.logger.error(
-                    "Failed to get streamdetails for QueueItem %s: %s", queue_item_id, e
+                    "Failed to get streamdetails for QueueItem %s: %s",
+                    queue_item_id,
+                    e,
                 )
                 queue_item.available = False
                 raise web.HTTPNotFound(reason=f"No streamdetails for Queue item: {queue_item_id}")
@@ -463,7 +469,10 @@ class StreamsController(CoreController):
         )
         resp.content_type = f"audio/{output_format.output_format_str}"
         http_profile = await self.mass.config.get_player_config_value(
-            queue_id, CONF_HTTP_PROFILE, default="default", return_type=str
+            queue_id,
+            CONF_HTTP_PROFILE,
+            default="default",
+            return_type=str,
         )
         if http_profile == "forced_content_length" and not queue_item.duration:
             # just set an insane high content length to make sure the player keeps playing
@@ -485,10 +494,14 @@ class StreamsController(CoreController):
             smart_fades_mode = SmartFadesMode.DISABLED
         else:
             smart_fades_mode = await self.mass.config.get_player_config_value(
-                queue.queue_id, CONF_SMART_FADES_MODE, return_type=SmartFadesMode
+                queue.queue_id,
+                CONF_SMART_FADES_MODE,
+                return_type=SmartFadesMode,
             )
             standard_crossfade_duration = self.mass.config.get_raw_player_config_value(
-                queue.queue_id, CONF_CROSSFADE_DURATION, 10
+                queue.queue_id,
+                CONF_CROSSFADE_DURATION,
+                10,
             )
         if (
             smart_fades_mode != SmartFadesMode.DISABLED
@@ -553,7 +566,8 @@ class StreamsController(CoreController):
                     # inform the queue that the track is now loaded in the buffer
                     # so for example the next track can be enqueued
                     self.mass.player_queues.track_loaded_in_buffer(
-                        queue_item.queue_id, queue_item.queue_item_id
+                        queue_item.queue_id,
+                        queue_item.queue_item_id,
                     )
             except (BrokenPipeError, ConnectionResetError, ConnectionError) as err:
                 if first_chunk_received and not queue_player.stop_called:
@@ -635,7 +649,10 @@ class StreamsController(CoreController):
             headers=headers,
         )
         http_profile = await self.mass.config.get_player_config_value(
-            queue_id, CONF_HTTP_PROFILE, default="default", return_type=str
+            queue_id,
+            CONF_HTTP_PROFILE,
+            default="default",
+            return_type=str,
         )
         if http_profile == "forced_content_length":
             # just set an insane high content length to make sure the player keeps playing
@@ -664,7 +681,10 @@ class StreamsController(CoreController):
             input_format=flow_pcm_format,
             output_format=output_format,
             filter_params=get_player_filter_params(
-                self.mass, queue_player.player_id, flow_pcm_format, output_format
+                self.mass,
+                queue_player.player_id,
+                flow_pcm_format,
+                output_format,
             ),
             # we need to slowly feed the music to avoid the player stopping and later
             # restarting (or completely failing) the audio stream by keeping the buffer short.
@@ -731,7 +751,10 @@ class StreamsController(CoreController):
         audio_format = AudioFormat(content_type=ContentType.try_parse(fmt))
 
         http_profile = await self.mass.config.get_player_config_value(
-            player_id, CONF_HTTP_PROFILE, default="default", return_type=str
+            player_id,
+            CONF_HTTP_PROFILE,
+            default="default",
+            return_type=str,
         )
         if http_profile == "forced_content_length":
             # given the fact that an announcement is just a short audio clip,
@@ -824,7 +847,10 @@ class StreamsController(CoreController):
         )
         resp.content_type = f"audio/{output_format.output_format_str}"
         http_profile = await self.mass.config.get_player_config_value(
-            player_id, CONF_HTTP_PROFILE, default="default", return_type=str
+            player_id,
+            CONF_HTTP_PROFILE,
+            default="default",
+            return_type=str,
         )
         if http_profile == "forced_content_length":
             # just set an insanely high content length to make sure the player keeps playing
@@ -846,7 +872,10 @@ class StreamsController(CoreController):
             output_format=output_format,
             player_id=player_id,
             player_filter_params=get_player_filter_params(
-                self.mass, player_id, plugin_source.audio_format, output_format
+                self.mass,
+                player_id,
+                plugin_source.audio_format,
+                output_format,
             ),
         ):
             try:
@@ -873,7 +902,10 @@ class StreamsController(CoreController):
         return f"{self.base_url}/announcement/{player_id}.{content_type.value}"
 
     def get_stream(
-        self, media: PlayerMedia, pcm_format: AudioFormat, force_flow_mode: bool = False
+        self,
+        media: PlayerMedia,
+        pcm_format: AudioFormat,
+        force_flow_mode: bool = False,
     ) -> AsyncGenerator[bytes, None]:
         """
         Get a stream of the given media as raw PCM audio.
@@ -927,7 +959,8 @@ class StreamsController(CoreController):
             queue = self.mass.player_queues.get(media.source_id)
             assert queue
             start_queue_item = self.mass.player_queues.get_item(
-                media.source_id, media.queue_item_id
+                media.source_id,
+                media.queue_item_id,
             )
             assert start_queue_item
             audio_source = self.mass.streams.get_queue_flow_stream(
@@ -986,10 +1019,14 @@ class StreamsController(CoreController):
             standard_crossfade_duration = 0
         else:
             smart_fades_mode = await self.mass.config.get_player_config_value(
-                queue.queue_id, CONF_SMART_FADES_MODE, return_type=SmartFadesMode
+                queue.queue_id,
+                CONF_SMART_FADES_MODE,
+                return_type=SmartFadesMode,
             )
             standard_crossfade_duration = self.mass.config.get_raw_player_config_value(
-                queue.queue_id, CONF_CROSSFADE_DURATION, 10
+                queue.queue_id,
+                CONF_CROSSFADE_DURATION,
+                10,
             )
         self.logger.info(
             "Start Queue Flow stream for Queue %s - crossfade: %s %s",
@@ -1009,7 +1046,8 @@ class StreamsController(CoreController):
             else:
                 try:
                     queue_track = await self.mass.player_queues.load_next_queue_item(
-                        queue.queue_id, queue_track.queue_item_id
+                        queue.queue_id,
+                        queue_track.queue_item_id,
                     )
                 except QueueEmpty:
                     break
@@ -1067,7 +1105,8 @@ class StreamsController(CoreController):
                     # inform the queue that the track is now loaded in the buffer
                     # so the next track can be preloaded
                     self.mass.player_queues.track_loaded_in_buffer(
-                        queue.queue_id, queue_track.queue_item_id
+                        queue.queue_id,
+                        queue_track.queue_item_id,
                     )
                 if total_chunks_received < 10 and smart_fades_mode != SmartFadesMode.DISABLED:
                     # we want a stream to start as quickly as possible
@@ -1144,7 +1183,9 @@ class StreamsController(CoreController):
                 bytes_written += len(last_fadeout_part)
                 last_fadeout_part = b""
             if self._crossfade_allowed(
-                queue_track, smart_fades_mode=smart_fades_mode, flow_mode=True
+                queue_track,
+                smart_fades_mode=smart_fades_mode,
+                flow_mode=True,
             ):
                 # if crossfade is enabled, save fadeout part to pickup for next track
                 last_fadeout_part = buffer[-crossfade_buffer_size:]
@@ -1169,7 +1210,7 @@ class StreamsController(CoreController):
             seconds_streamed = bytes_written / pcm_sample_size
             queue_track.streamdetails.seconds_streamed = seconds_streamed
             queue_track.streamdetails.duration = int(
-                queue_track.streamdetails.seek_position + seconds_streamed
+                queue_track.streamdetails.seek_position + seconds_streamed,
             )
             play_log_entry.seconds_streamed = seconds_streamed
             play_log_entry.duration = queue_track.streamdetails.duration
@@ -1250,7 +1291,7 @@ class StreamsController(CoreController):
             # pad silence while we're waiting for the announcement to be ready
             while announcement_data.empty():
                 yield b"\0" * int(
-                    pcm_format.sample_rate * (pcm_format.bit_depth / 8) * pcm_format.channels * 0.1
+                    pcm_format.sample_rate * (pcm_format.bit_depth / 8) * pcm_format.channels * 0.1,
                 )
                 await asyncio.sleep(0.1)
             # stream announcement
@@ -1315,7 +1356,9 @@ class StreamsController(CoreController):
                 yield chunk
         finally:
             self.logger.debug(
-                "Finished streaming PluginSource %s to %s", plugin_source_id, player_id
+                "Finished streaming PluginSource %s to %s",
+                plugin_source_id,
+                player_id,
             )
             await asyncio.sleep(1)  # prevent race conditions when selecting source
             if plugin_source.in_use_by == player_id:
@@ -1352,7 +1395,10 @@ class StreamsController(CoreController):
                 else CONF_VOLUME_NORMALIZATION_FIXED_GAIN_RADIO
             )
             gain_value = await self.mass.config.get_core_config_value(
-                self.domain, config_key, default=0.0, return_type=float
+                self.domain,
+                config_key,
+                default=0.0,
+                return_type=float,
             )
             gain_correct = round(gain_value, 2)
             filter_params.append(f"volume={gain_correct}dB")
@@ -1376,9 +1422,11 @@ class StreamsController(CoreController):
 
         allow_buffer = bool(
             self.mass.config.get_raw_core_config_value(
-                self.domain, CONF_ALLOW_BUFFER, CONF_ALLOW_BUFFER_DEFAULT
+                self.domain,
+                CONF_ALLOW_BUFFER,
+                CONF_ALLOW_BUFFER_DEFAULT,
             )
-            and streamdetails.duration
+            and streamdetails.duration,
         )
 
         self.logger.debug(
@@ -1444,6 +1492,22 @@ class StreamsController(CoreController):
                     streamdetails.fade_in = False
                 else:
                     yield chunk
+                    # feed chunk to audio analysis providers if any are active
+                    if self.mass.audio_analysis.has_active_providers():
+                        chunk_timestamp = (
+                            seek_position
+                            + (bytes_received - len(chunk)) / pcm_format.pcm_sample_size
+                        )
+                        self.mass.create_task(
+                            self.mass.audio_analysis.process_pcm_chunk(
+                                queue_id=queue_item.queue_id,
+                                queue_item_id=queue_item.queue_item_id,
+                                track_uri=streamdetails.uri,
+                                pcm_chunk=chunk,
+                                pcm_format=pcm_format,
+                                timestamp=chunk_timestamp,
+                            ),
+                        )
                 # help garbage collection by explicitly deleting chunk
                 del chunk
             finished = True
@@ -1503,7 +1567,8 @@ class StreamsController(CoreController):
         if crossfade_data and (crossfade_data.queue_item_id != queue_item.queue_item_id):
             # edge case alert: the next item changed just while we were preloading/crossfading
             self.logger.warning(
-                "Skipping crossfade data for queue %s - next item changed!", queue.display_name
+                "Skipping crossfade data for queue %s - next item changed!",
+                queue.display_name,
             )
             crossfade_data = None
 
@@ -1552,7 +1617,7 @@ class StreamsController(CoreController):
             discard_bytes = int(discard_seconds * pcm_format.pcm_sample_size)
             # Convert fade_in_size to current track's format for correct leftover calculation
             fade_in_size_in_current_format = int(
-                fade_in_duration_seconds * pcm_format.pcm_sample_size
+                fade_in_duration_seconds * pcm_format.pcm_sample_size,
             )
             discard_leftover = fade_in_size_in_current_format - discard_bytes
         else:
@@ -1561,7 +1626,9 @@ class StreamsController(CoreController):
         total_chunks_received = 0
         req_buffer_size = crossfade_buffer_size
         async for chunk in self.get_queue_item_stream(
-            queue_item, pcm_format, seek_position=discard_seconds
+            queue_item,
+            pcm_format,
+            seek_position=discard_seconds,
         ):
             total_chunks_received += 1
             if discard_leftover:
@@ -1665,15 +1732,17 @@ class StreamsController(CoreController):
                 queue.display_name,
             )
             next_queue_item = await self.mass.player_queues.load_next_queue_item(
-                queue.queue_id, queue_item.queue_item_id
+                queue.queue_id,
+                queue_item.queue_item_id,
             )
             # set index_in_buffer to prevent our next track is overwritten while preloading
             if next_queue_item.streamdetails is None:
                 raise InvalidDataError(
-                    f"No streamdetails for next queue item {next_queue_item.queue_item_id}"
+                    f"No streamdetails for next queue item {next_queue_item.queue_item_id}",
                 )
             queue.index_in_buffer = self.mass.player_queues.index_by_id(
-                queue.queue_id, next_queue_item.queue_item_id
+                queue.queue_id,
+                next_queue_item.queue_item_id,
             )
             queue_player = self.mass.players.get(queue.queue_id)
             assert queue_player is not None
@@ -1704,7 +1773,8 @@ class StreamsController(CoreController):
             buffer = b""
             try:
                 async for chunk in self.get_queue_item_stream(
-                    next_queue_item, next_queue_item_pcm_format
+                    next_queue_item,
+                    next_queue_item_pcm_format,
                 ):
                     # append to buffer until we reach crossfade size
                     # we only need the first X seconds of the NEXT track so we can
@@ -1822,11 +1892,15 @@ class StreamsController(CoreController):
         supported_rates_conf = cast(
             "list[tuple[str, str]]",
             await self.mass.config.get_player_config_value(
-                player.player_id, CONF_SAMPLE_RATES, unpack_splitted_values=True
+                player.player_id,
+                CONF_SAMPLE_RATES,
+                unpack_splitted_values=True,
             ),
         )
         output_channels_str = self.mass.config.get_raw_player_config_value(
-            player.player_id, CONF_OUTPUT_CHANNELS, "stereo"
+            player.player_id,
+            CONF_OUTPUT_CHANNELS,
+            "stereo",
         )
         supported_sample_rates = tuple(int(x[0]) for x in supported_rates_conf)
         supported_bit_depths = tuple(int(x[1]) for x in supported_rates_conf)
@@ -1859,7 +1933,9 @@ class StreamsController(CoreController):
         supported_rates_conf = cast(
             "list[tuple[str, str]]",
             await self.mass.config.get_player_config_value(
-                player.player_id, CONF_SAMPLE_RATES, unpack_splitted_values=True
+                player.player_id,
+                CONF_SAMPLE_RATES,
+                unpack_splitted_values=True,
             ),
         )
         supported_sample_rates = tuple(int(x[0]) for x in supported_rates_conf)
@@ -1885,7 +1961,9 @@ class StreamsController(CoreController):
         supported_rates_conf = cast(
             "list[tuple[str, str]]",
             await self.mass.config.get_player_config_value(
-                player.player_id, CONF_SAMPLE_RATES, unpack_splitted_values=True
+                player.player_id,
+                CONF_SAMPLE_RATES,
+                unpack_splitted_values=True,
             ),
         )
         supported_sample_rates = tuple(int(x[0]) for x in supported_rates_conf)
@@ -1926,7 +2004,8 @@ class StreamsController(CoreController):
             return False
         # check if the next item is part of the same album
         next_item = next_queue_item or self.mass.player_queues.get_next_item(
-            queue_item.queue_id, queue_item.queue_item_id
+            queue_item.queue_id,
+            queue_item.queue_item_id,
         )
         if not next_item:
             # there is no next item!
@@ -1942,7 +2021,9 @@ class StreamsController(CoreController):
             and next_item.media_item.album
             and queue_item.media_item.album == next_item.media_item.album
             and not self.mass.config.get_raw_core_config_value(
-                self.domain, CONF_ALLOW_CROSSFADE_SAME_ALBUM, False
+                self.domain,
+                CONF_ALLOW_CROSSFADE_SAME_ALBUM,
+                False,
             )
         ):
             # in general, crossfade is not desired for tracks of the same (gapless) album

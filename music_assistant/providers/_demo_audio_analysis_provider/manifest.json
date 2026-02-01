@@ -1,0 +1,9 @@
+{
+  "type": "plugin",
+  "domain": "_demo_audio_analysis_provider",
+  "name": "Demo Audio Analysis Provider",
+  "description": "Demo/Template Audio Analysis Provider for Music Assistant. Shows how to receive and process mel spectrogram data for ML/AI analysis.",
+  "codeowners": ["@music-assistant"],
+  "requirements": [],
+  "documentation": "https://music-assistant.io/plugin-support/audio-analysis/"
+}

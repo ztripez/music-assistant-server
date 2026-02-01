@@ -12,9 +12,7 @@ import numpy as np
 import numpy.typing as npt
 
 from music_assistant.constants import VERBOSE_LOG_LEVEL
-from music_assistant.helpers.audio import (
-    align_audio_to_frame_boundary,
-)
+from music_assistant.helpers.pcm import align_pcm_to_frame_boundary, pcm_to_mono
 from music_assistant.models.smart_fades import (
     SmartFadesAnalysis,
     SmartFadesAnalysisFragment,
@@ -55,7 +53,7 @@ class SmartFadesAnalyzer:
         )
 
         # Validate input audio data is frame-aligned
-        audio_data = align_audio_to_frame_boundary(audio_data, pcm_format)
+        audio_data = align_pcm_to_frame_boundary(audio_data, pcm_format)
 
         fragment_duration = len(audio_data) / (pcm_format.pcm_sample_size)
         try:
@@ -65,28 +63,8 @@ class SmartFadesAnalyzer:
                 fragment_duration,
                 len(audio_data),
             )
-            # Convert PCM bytes to numpy array and then to mono for analysis
-            audio_array = np.frombuffer(audio_data, dtype=np.float32)
-            if pcm_format.channels > 1:
-                # Ensure array size is divisible by channel count
-                samples_per_channel = len(audio_array) // pcm_format.channels
-                valid_samples = samples_per_channel * pcm_format.channels
-                if valid_samples != len(audio_array):
-                    self.logger.warning(
-                        "Audio buffer size (%d) not divisible by channels (%d), "
-                        "truncating %d samples",
-                        len(audio_array),
-                        pcm_format.channels,
-                        len(audio_array) - valid_samples,
-                    )
-                    audio_array = audio_array[:valid_samples]
-
-                # Reshape to separate channels and take average for mono conversion
-                audio_array = audio_array.reshape(-1, pcm_format.channels)
-                mono_audio = np.asarray(np.mean(audio_array, axis=1, dtype=np.float32))
-            else:
-                # Single channel - ensure consistent array type
-                mono_audio = np.asarray(audio_array, dtype=np.float32)
+            # Convert PCM bytes to mono for analysis
+            mono_audio = pcm_to_mono(audio_data, pcm_format, truncate_misaligned=True)
 
             # Validate that the audio is finite (no NaN or Inf values)
             if not np.all(np.isfinite(mono_audio)):

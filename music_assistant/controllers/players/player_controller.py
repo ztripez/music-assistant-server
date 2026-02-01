@@ -447,7 +447,9 @@ class PlayerController(CoreController):
         :return: PluginSource object or None.
         """
         for plugin_prov in self.mass.get_providers(ProviderType.PLUGIN):
-            assert isinstance(plugin_prov, PluginProvider)  # for type checking
+            if not isinstance(plugin_prov, PluginProvider):
+                # Skip non-plugin providers (e.g., AudioAnalysisProvider using plugin type)
+                continue
             if ProviderFeature.AUDIO_SOURCE not in plugin_prov.supported_features:
                 continue
             if (source := plugin_prov.get_source()) and source.id == source_id:
