@@ -14,7 +14,8 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write  # Needed to post comments
+  pull-requests: write
+  issues: write  # Needed to post PR comments (PRs are issues in GitHub API)
 
 jobs:
   security-check:
