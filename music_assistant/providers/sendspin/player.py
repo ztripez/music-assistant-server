@@ -230,6 +230,7 @@ class SendspinPlayer(Player):
         )
         self._attr_expose_to_ha_by_default = not self.is_web_player
         self._attr_hidden_by_default = self.is_web_player
+        self._attr_type = PlayerType.PLAYER if self.is_web_player else PlayerType.PROTOCOL
 
     def event_cb(self, client: SendspinClient, event: ClientEvent) -> None:
         """Event callback registered to the sendspin server."""
