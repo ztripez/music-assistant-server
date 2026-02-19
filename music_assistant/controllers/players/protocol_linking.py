@@ -230,8 +230,6 @@ class ProtocolLinkingMixin:
                             native_player.device_info.add_identifier(conn_type, value)
                         # Update model/manufacturer if universal player has generic values
                         self._update_universal_device_info(native_player, protocol_player)
-                        # Update availability from protocol players
-                        native_player.update_from_protocol_players()
                         # Persist updated data to config (async via task)
                         self._save_universal_player_data(native_player)
                         protocol_player.update_state()
@@ -372,8 +370,6 @@ class ProtocolLinkingMixin:
                 universal_player.device_info.add_identifier(conn_type, value)
             # Update model/manufacturer if universal player has generic values
             self._update_universal_device_info(universal_player, protocol_player)
-            # Update availability from protocol players
-            universal_player.update_from_protocol_players()
 
             # Persist all player data (protocol IDs, identifiers, device info) to config
             for provider in self.mass.get_providers(ProviderType.PLAYER):
@@ -440,8 +436,7 @@ class ProtocolLinkingMixin:
             player.update_state()
 
         # Update availability from protocol players
-        if isinstance(universal_player, UniversalPlayer):
-            universal_player.update_from_protocol_players()
+        universal_player.update_state()
 
     async def _create_or_update_universal_player(self, protocol_players: list[Player]) -> None:
         """
