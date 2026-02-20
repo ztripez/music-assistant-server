@@ -514,27 +514,15 @@ class StreamsController(CoreController):
             )
         else:
             # no crossfade, just a regular single item stream
-            audio_input = buffered(
-                self.get_queue_item_stream(
-                    queue_item=queue_item,
-                    pcm_format=pcm_format,
-                    seek_position=queue_item.streamdetails.seek_position,
-                ),
-                buffer_size=10,
-                min_buffer_before_yield=2,
+            audio_input = self.get_queue_item_stream(
+                queue_item=queue_item,
+                pcm_format=pcm_format,
+                seek_position=queue_item.streamdetails.seek_position,
             )
         # stream the audio
         # this final ffmpeg process in the chain will convert the raw, lossless PCM audio into
         # the desired output format for the player including any player specific filter params
         # such as channels mixing, DSP, resampling and, only if needed, encoding to lossy formats
-        if queue_item.media_type == MediaType.RADIO:
-            # keep very short buffer for radio streams
-            # to keep them (more or less) realtime and prevent time outs
-            read_rate_input_args = ["-readrate", "1.0", "-readrate_initial_burst", "2"]
-        else:
-            # just allow the player to buffer whatever it wants for single item streams
-            read_rate_input_args = None
-
         first_chunk_received = False
         bytes_sent = 0
         async for chunk in get_ffmpeg_stream(
@@ -547,7 +535,6 @@ class StreamsController(CoreController):
                 input_format=pcm_format,
                 output_format=output_format,
             ),
-            extra_input_args=read_rate_input_args,
         ):
             try:
                 await resp.write(chunk)

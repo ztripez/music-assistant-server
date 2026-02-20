@@ -959,7 +959,6 @@ class ProtocolLinkingMixin:
         player: Player,
         required_feature: PlayerFeature,
         require_active: bool = False,
-        allow_native: bool = True,
     ) -> Player | None:
         """
         Get the best player(protocol) to send control commands to.
@@ -977,13 +976,19 @@ class ProtocolLinkingMixin:
             return protocol_player
 
         # if the player natively supports the required feature, use that
-        if allow_native and required_feature in player.supported_features:
+        if (
+            player.active_output_protocol == "native"
+            and required_feature in player.supported_features
+        ):
             return player
 
         # If require_active is set, and no active protocol found, return None
         if require_active:
             return None
 
+        # if the player natively supports the required feature, use that
+        if required_feature in player.supported_features:
+            return player
         # Otherwise, use the first available linked protocol
         for linked in player.linked_output_protocols:
             if (

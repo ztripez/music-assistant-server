@@ -1738,6 +1738,12 @@ class Player(ABC):
         if self.type == PlayerType.PROTOCOL:
             return result
 
+        # Scenario 2: External source is active - don't include protocol-based grouping
+        # When an external source (e.g., Spotify Connect, TV) is active, grouping via
+        # protocols (AirPlay, Sendspin, etc.) wouldn't work - only native grouping is available.
+        if self._has_external_source_active():
+            return result
+
         # Translate can_group_with from active linked protocol(s) and add to result
         for linked in self.__attr_linked_protocols:
             if protocol_player := self.mass.players.get_player(linked.output_protocol_id):
@@ -1808,6 +1814,34 @@ class Player(ABC):
                 continue
             result.add(parent_player)
         return result
+
+    @final
+    def _has_external_source_active(self) -> bool:
+        """
+        Check if an external (non-MA-managed) source is currently active.
+
+        External sources include things like Spotify Connect, TV input, etc.
+        When an external source is active, protocol-based grouping is not available.
+
+        :return: True if an external source is active, False otherwise.
+        """
+        active_source = self.__final_active_source
+        if active_source is None:
+            return False
+
+        # Player's own ID means MA queue is (or was) active
+        if active_source == self.player_id:
+            return False
+
+        # Check if it's a known queue ID
+        if self.mass.player_queues.get(active_source):
+            return False
+
+        # Check if it's a plugin source - if not, it's an external source
+        return not any(
+            plugin_source.id == active_source
+            for plugin_source in self.mass.players.get_plugin_sources()
+        )
 
     @final
     def _expand_can_group_with(self) -> set[Player]:

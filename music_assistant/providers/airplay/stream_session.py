@@ -9,6 +9,7 @@ from collections.abc import AsyncGenerator
 from contextlib import suppress
 from typing import TYPE_CHECKING
 
+from music_assistant_models.enums import PlaybackState
 from music_assistant_models.errors import PlayerCommandFailed
 
 from music_assistant.constants import CONF_SYNC_ADJUST
@@ -105,6 +106,7 @@ class AirPlayStreamSession:
                 return
             self.sync_clients.remove(airplay_player)
         await self.stop_client(airplay_player)
+        airplay_player.set_state_from_stream(PlaybackState.IDLE)
         # If this was the last client, stop the session
         if not self.sync_clients:
             await self.stop()
