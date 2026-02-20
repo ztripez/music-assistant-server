@@ -1071,6 +1071,21 @@ class Player(ABC):
         return None
 
     @final
+    def get_output_protocol_by_domain(self, protocol_domain: str) -> OutputProtocol | None:
+        """
+        Get an output protocol by domain, including native protocol.
+
+        Unlike get_linked_protocol, this also checks if the player's native protocol
+        matches the requested domain.
+
+        :param protocol_domain: The protocol domain to search for (e.g., "airplay", "sonos").
+        """
+        for output_protocol in self.output_protocols:
+            if output_protocol.protocol_domain == protocol_domain:
+                return output_protocol
+        return None
+
+    @final
     def get_protocol_player(self, player_id: str) -> Player | None:
         """Get the protocol Player for a given player_id."""
         if player_id == "native":
@@ -1613,7 +1628,15 @@ class Player(ABC):
             # If player is synced to another player, it has no group members itself
             return []
 
-        members = self.group_members.copy()
+        # Start by translating native group_members to visible player IDs
+        # This handles cases where a native player (e.g., native AirPlay) has grouped
+        # protocol players (e.g., Sonos AirPlay protocol players) that need translation
+        members: list[str] = []
+        translated_members = self._translate_protocol_ids_to_visible(set(self.group_members))
+        for member in translated_members:
+            if member.player_id not in members:
+                members.append(member.player_id)
+
         # If there's an active linked protocol, include its group members (translated)
         if self.__attr_active_output_protocol and self.__attr_active_output_protocol != "native":
             if protocol_player := self.mass.players.get_player(self.__attr_active_output_protocol):
@@ -1653,9 +1676,13 @@ class Player(ABC):
             if protocol_player.synced_to:
                 # Protocol player is synced, translate to visible player
                 if proto_sync_parent := self.mass.players.get_player(protocol_player.synced_to):
+                    if proto_sync_parent.type != PlayerType.PROTOCOL:
+                        # Sync parent is already a visible player (e.g., native AirPlay player)
+                        return proto_sync_parent.player_id
                     if proto_sync_parent.protocol_parent_id and (
                         parent := self.mass.players.get_player(proto_sync_parent.protocol_parent_id)
                     ):
+                        # Sync parent is a protocol player, return its visible parent
                         return parent.player_id
 
         return None

@@ -2456,10 +2456,14 @@ class PlayerController(ProtocolLinkingMixin, CoreController):
         # Forward native members to parent player's set_members
         if native_members_to_add or native_members_to_remove:
             filtered_native_add = self._filter_native_members(native_members_to_add, parent_player)
+            # For removal, allow protocol players if they're actually in the parent's group_members
+            # This handles native protocol players (e.g., native AirPlay) where group_members
+            # contains protocol player IDs
             filtered_native_remove = [
                 pid
                 for pid in native_members_to_remove
-                if (p := self.get_player(pid)) and p.type != PlayerType.PROTOCOL
+                if (p := self.get_player(pid))
+                and (p.type != PlayerType.PROTOCOL or pid in parent_player.group_members)
             ]
             self.logger.debug(
                 "Native grouping on %s: filtered_add=%s, filtered_remove=%s",
