@@ -1098,7 +1098,7 @@ class PlayerController(ProtocolLinkingMixin, CoreController):
             return
 
         if player.state.group_members:
-            # player is a sync leader, so we ungroup all members from it
+            # player is a sync leader (or syncgroup), so we ungroup all members from it
             await self.cmd_set_members(
                 player.player_id, player_ids_to_remove=player.state.group_members
             )
@@ -2589,12 +2589,13 @@ class PlayerController(ProtocolLinkingMixin, CoreController):
             return  # nothing to do
 
         # ungroup player at power off
-        player_was_synced = bool(player.state.synced_to or player.group_members)
-        if player.type == PlayerType.PLAYER and not powered:
+        player_was_synced = bool(
+            player.state.synced_to or player.group_members or player.state.active_group
+        )
+        if player_was_synced and player.type == PlayerType.PLAYER and not powered:
             # ungroup player if it is synced (or is a sync leader itself)
             # NOTE: ungroup will be ignored if the player is not grouped or synced
             await self.cmd_ungroup(player_id)
-            player.set_active_output_protocol(None)  # also clear active protocol if any
 
         # always stop player at power off
         if (
@@ -2602,7 +2603,7 @@ class PlayerController(ProtocolLinkingMixin, CoreController):
             and not player_was_synced
             and player_state.playback_state in (PlaybackState.PLAYING, PlaybackState.PAUSED)
         ):
-            await self.cmd_stop(player_id)
+            await self._handle_cmd_stop(player_id)
             # short sleep: allow the stop command to process and prevent race conditions
             await asyncio.sleep(0.2)
 
@@ -2884,11 +2885,13 @@ class PlayerController(ProtocolLinkingMixin, CoreController):
             if PlayerFeature.POWER in target_player.supported_features:
                 # if protocol player supports/requires power,
                 # we power it off instead of just stopping (which also stops playback)
+                # this is rare as most protocols do not support power control (except for cast)
                 await self._handle_cmd_power(target_player.player_id, False)
                 return
 
         # handle command on player(protocol) directly
         await target_player.stop()
+        player.set_active_output_protocol(None)  # also clear active protocol if any
 
     async def _handle_cmd_play(self, player_id: str) -> None:
         """
