@@ -782,7 +782,7 @@ class PlayerController(ProtocolLinkingMixin, CoreController):
                 "Redirecting mute command to protocol player %s",
                 protocol_player.provider.manifest.name,
             )
-            await self.cmd_volume_mute(protocol_player.player_id, muted)
+            await protocol_player.volume_mute(muted)
             return
 
     @api_command("players/cmd/play_announcement")
@@ -1029,9 +1029,10 @@ class PlayerController(ProtocolLinkingMixin, CoreController):
             msg = f"Player {parent_player.name} does not support group commands"
             raise UnsupportedFeaturedException(msg)
 
-        # handle edge case: player already synced to another player
-        # automatically ungroup it first and wait for state to propagate
-        await self._auto_ungroup_if_synced(parent_player, "setting members")
+        if parent_player.synced_to:
+            # handle edge case: target player is already synced itself to another player
+            # automatically ungroup it first and wait for state to propagate
+            await self._auto_ungroup_if_synced(parent_player, "setting members")
 
         lock_key = f"set_members_{target_player}"
         if lock_key not in self._player_command_locks:
@@ -2217,8 +2218,8 @@ class PlayerController(ProtocolLinkingMixin, CoreController):
             protocol_player.provider.domain,
         )
 
-        # Clear active output protocol
-        player.set_active_output_protocol(None)
+        # Set active output protocol to native
+        player.set_active_output_protocol("native")
 
         # Ungroup the protocol player (async task)
         self.mass.create_task(protocol_player.ungroup())
@@ -2553,6 +2554,7 @@ class PlayerController(ProtocolLinkingMixin, CoreController):
             player.state.playback_state in (PlaybackState.IDLE, PlaybackState.PAUSED)
             and active_source
             and active_source.can_play_pause
+            and PlayerFeature.PAUSE in player.state.supported_features
         ):
             # player has some other source active and native resume support
             await player.play()
@@ -2564,8 +2566,8 @@ class PlayerController(ProtocolLinkingMixin, CoreController):
             # try to re-play the current media item
             await player.play_media(media)
             return
-        # fallback: just send play command - which will fail if nothing can be played
-        await player.play()
+        # fallback: just try to resume queue playback
+        await self.mass.player_queues.resume(player.player_id)
 
     async def _handle_cmd_power(self, player_id: str, powered: bool) -> None:
         """
