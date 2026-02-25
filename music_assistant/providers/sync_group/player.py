@@ -171,13 +171,16 @@ class SyncGroupPlayer(Player):
                 "These members will always be part of the group and can never be unjoined "
                 "from the group. ",
                 required=False,  # needed for dynamic members (which allows empty members list)
-                options=[
-                    ConfigValueOption(x.display_name, x.player_id)
-                    for x in self.mass.players.all_players(True, False)
-                    if x.type != PlayerType.GROUP
-                    and PlayerFeature.SET_MEMBERS in x.state.supported_features
-                    and x.state.can_group_with
-                ],
+                options=sorted(
+                    [
+                        ConfigValueOption(x.display_name, x.player_id)
+                        for x in self.mass.players.all_players(True, False)
+                        if x.type != PlayerType.GROUP
+                        and PlayerFeature.SET_MEMBERS in x.state.supported_features
+                        and x.state.can_group_with
+                    ],
+                    key=lambda x: x.title,
+                ),
             ),
             ConfigEntry(
                 key=CONF_DYNAMIC_GROUP_MEMBERS,
