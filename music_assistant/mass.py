@@ -896,10 +896,11 @@ class MusicAssistant:
             )
         ]
         # load providers concurrently via tasks
-        for prov_conf in other_configs:
-            # Use a task so we can load multiple providers at once.
-            # If a provider fails, that will not block the loading of other providers.
-            self.create_task(self.load_provider(prov_conf.instance_id, allow_retry=True))
+        async with TaskManager(self, 2) as tg:
+            for prov_conf in other_configs:
+                # Use a task so we can load multiple providers at once.
+                # If a provider fails, that will not block the loading of other providers.
+                tg.create_task(self.load_provider(prov_conf.instance_id, allow_retry=True))
 
     async def _load_provider(self, conf: ProviderConfig) -> None:
         """Load (or reload) a provider."""
