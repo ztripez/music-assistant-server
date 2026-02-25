@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, cast
 
 from music_assistant_models.config_entries import ConfigEntry, ConfigValueOption, ConfigValueType
 from music_assistant_models.enums import ConfigEntryType, PlaybackState, PlayerFeature, PlayerType
-from music_assistant_models.errors import UnsupportedFeaturedException
+from music_assistant_models.errors import PlayerCommandFailed, UnsupportedFeaturedException
 from propcache import under_cached_property as cached_property
 
 from music_assistant.constants import (
@@ -67,7 +67,7 @@ class SyncGroupPlayer(Player):
             self._attr_supported_features.discard(PlayerFeature.SET_MEMBERS)
         self._attr_group_members = static_members.copy()
 
-    @cached_property
+    @property
     def supported_features(self) -> set[PlayerFeature]:
         """Return the supported features of the player."""
         # by default we don't have any features, except play_media
@@ -165,15 +165,18 @@ class SyncGroupPlayer(Player):
                 key=CONF_GROUP_MEMBERS,
                 type=ConfigEntryType.STRING,
                 multi_value=True,
-                label="Group members",
+                label="Permanent group members",
                 default_value=[],
-                description="Select all players you want to be part of this sync group. "
-                "Only compatible players (based on their sync protocol) can be grouped together.",
+                description="Select all static/permanent members of this sync group. "
+                "These members will always be part of the group and can never be unjoined "
+                "from the group. ",
                 required=False,  # needed for dynamic members (which allows empty members list)
                 options=[
                     ConfigValueOption(x.display_name, x.player_id)
                     for x in self.mass.players.all_players(True, False)
                     if x.type != PlayerType.GROUP
+                    and PlayerFeature.SET_MEMBERS in x.state.supported_features
+                    and x.state.can_group_with
                 ],
             ),
             ConfigEntry(
@@ -182,7 +185,9 @@ class SyncGroupPlayer(Player):
                 label="Enable dynamic members",
                 description="Allow (un)joining members dynamically, so the group more or less "
                 "behaves the same like manually syncing players together, "
-                "with the main difference being that the group player will hold the queue.",
+                "with the main difference being that the group player will hold the queue. \n"
+                "Note that static members will always be part of the group and can never "
+                "be unjoined from the group.",
                 default_value=False,
                 required=False,
             ),
@@ -271,11 +276,16 @@ class SyncGroupPlayer(Player):
         for member_id in player_ids_to_remove or []:
             if member_id not in self._attr_group_members:
                 continue
+            if member_id in self._attr_static_group_members:
+                # static members can not be removed from the group
+                raise PlayerCommandFailed(
+                    f"Cannot remove {self.display_name} from group since it's a static member!"
+                )
             if self.sync_leader and member_id == self.sync_leader.player_id:
                 leader_removed = True
                 continue
             if member_id == self.player_id:
-                raise UnsupportedFeaturedException(
+                raise PlayerCommandFailed(
                     f"Cannot remove {self.display_name} from itself as a member!"
                 )
             self._attr_group_members.remove(member_id)

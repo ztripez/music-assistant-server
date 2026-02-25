@@ -17,6 +17,8 @@ CONF_ENTRY_SGP_NOTE = ConfigEntry(
     required=False,
 )
 
+CONF_ALLOW_STATIC_UNJOIN: Final[str] = "allow_static_unjoin"
+
 SUPPORT_DYNAMIC_LEADER = {
     # providers that support dynamic leader selection in a syncgroup
     # meaning that if you would remove the current leader from the group,
