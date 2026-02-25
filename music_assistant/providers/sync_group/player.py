@@ -17,7 +17,7 @@ from music_assistant.constants import (
 )
 from music_assistant.models.player import DeviceInfo, Player, PlayerMedia
 
-from .constants import CONF_ENTRY_SGP_NOTE, EXTRA_FEATURES_FROM_MEMBERS
+from .constants import CONF_ENTRY_SGP_NOTE, CONF_MEMBERS_FILTER, EXTRA_FEATURES_FROM_MEMBERS
 
 if TYPE_CHECKING:
     from .provider import SyncGroupProvider
@@ -119,15 +119,23 @@ class SyncGroupPlayer(Player):
                 self.sync_leader.player_id,
                 *self.sync_leader.state.can_group_with,
             }
+        members_filter = (
+            cast("list[str]", self.config.get_value(CONF_MEMBERS_FILTER, []))
+            if self.is_dynamic
+            else []
+        )
         # If we have no syncleader, but we do have group members
         # grab 'can_group_with' from the first available member
         for member_id in self._attr_group_members:
+            if member_id in members_filter:
+                continue
             member_player = self.mass.players.get_player(member_id)
             if member_player and member_player.state.available:
-                return {member_player.player_id, *member_player.state.can_group_with}
+                can_group_with = {member_player.player_id, *member_player.state.can_group_with}
+                return can_group_with.difference(members_filter)
         # Empty dynamic groups can potentially group with any compatible players
         # Actual compatibility is validated when adding members
-        can_group_with: set[str] = set()
+        can_group_with: set[str] = set()  # type: ignore[no-redef]
         for player in self.mass.players.all_players(return_unavailable=False):
             if not player.available or player.type == PlayerType.GROUP:
                 # let's avoid showing group players as options to group with
@@ -138,7 +146,7 @@ class SyncGroupPlayer(Player):
                 and not player.state.active_group
             ):
                 can_group_with.add(player.player_id)
-        return can_group_with
+        return can_group_with.difference(members_filter)
 
     @property
     def group_members(self) -> list[str]:
@@ -158,6 +166,16 @@ class SyncGroupPlayer(Player):
         values: dict[str, ConfigValueType] | None = None,
     ) -> list[ConfigEntry]:
         """Return all (provider/player specific) Config Entries for the given player (if any)."""
+        possible_players = sorted(
+            [
+                ConfigValueOption(x.display_name, x.player_id)
+                for x in self.mass.players.all_players(True, False)
+                if x.type != PlayerType.GROUP
+                and PlayerFeature.SET_MEMBERS in x.state.supported_features
+                and x.state.can_group_with
+            ],
+            key=lambda x: x.title,
+        )
         entries: list[ConfigEntry] = [
             # syncgroup specific entries
             CONF_ENTRY_SGP_NOTE,
@@ -171,16 +189,7 @@ class SyncGroupPlayer(Player):
                 "These members will always be part of the group and can never be unjoined "
                 "from the group. ",
                 required=False,  # needed for dynamic members (which allows empty members list)
-                options=sorted(
-                    [
-                        ConfigValueOption(x.display_name, x.player_id)
-                        for x in self.mass.players.all_players(True, False)
-                        if x.type != PlayerType.GROUP
-                        and PlayerFeature.SET_MEMBERS in x.state.supported_features
-                        and x.state.can_group_with
-                    ],
-                    key=lambda x: x.title,
-                ),
+                options=possible_players,
             ),
             ConfigEntry(
                 key=CONF_DYNAMIC_GROUP_MEMBERS,
@@ -193,6 +202,21 @@ class SyncGroupPlayer(Player):
                 "be unjoined from the group.",
                 default_value=False,
                 required=False,
+            ),
+            ConfigEntry(
+                key=CONF_MEMBERS_FILTER,
+                type=ConfigEntryType.STRING,
+                multi_value=True,
+                label="Members filter",
+                description="Optionally filter the list of available members that "
+                "are allowed to group with this player by excluding certain members. \n"
+                "Players in this list will NOT show up in the UI as options to be "
+                "added as members to the group. Also trying to join a member that "
+                "is in this list to the group will be prevented.",
+                default_value=[],
+                required=False,
+                options=possible_players,
+                depends_on=CONF_DYNAMIC_GROUP_MEMBERS,
             ),
         ]
         return entries
@@ -238,7 +262,7 @@ class SyncGroupPlayer(Player):
             # Use internal handler to bypass group redirect logic and avoid infinite loop
             await self.mass.players._handle_enqueue_next_media(sync_leader.player_id, media)
 
-    async def set_members(
+    async def set_members(  # noqa: PLR0915
         self,
         player_ids_to_add: list[str] | None = None,
         player_ids_to_remove: list[str] | None = None,
@@ -252,11 +276,24 @@ class SyncGroupPlayer(Player):
         was_playing = self.playback_state == PlaybackState.PLAYING
 
         # handle additions
+        members_filter = (
+            cast("list[str]", self.config.get_value(CONF_MEMBERS_FILTER, []))
+            if self.is_dynamic
+            else []
+        )
         final_players_to_add: list[str] = []
         can_group_with = sync_leader.state.can_group_with.copy() if sync_leader else set()
         for member_id in player_ids_to_add or []:
             if member_id == self.player_id:
                 continue  # can not add self as member
+            if member_id in members_filter:
+                self.logger.warning(
+                    "Player %s is in the members filter list for group %s, "
+                    "skipping adding it as a member to the group",
+                    member_id,
+                    self.display_name,
+                )
+                continue
             member = self.mass.players.get_player(member_id)
             if member is None or not member.available:
                 continue
