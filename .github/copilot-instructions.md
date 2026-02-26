@@ -46,3 +46,19 @@ Categorize every issue found as one of:
 - `[CRITICAL]` — must be fixed before merging (bugs, security issues, broken functionality)
 - `[PROBLEM]` — should be fixed (code quality, bad patterns, missing tests)
 - `[SUGGESTION]` — optional improvement (style, minor refactors, nice-to-haves)
+
+## Output
+- Post inline comments on GitHub for every `[CRITICAL]` and `[PROBLEM]` issue found.
+- Do NOT post `[SUGGESTION]` items to GitHub.
+- Do not list things that are already correct
+
+## Output Comment Format
+1. State the problem (1 sentence)
+2. Why it matters (1 sentence, if needed)
+3. Suggested fix (snippet or specific action)
+
+Example:
+This could generate a `KeyError` if `"name"` does not exist in the `dict`. Consider using `.get("name")` or adding a check.
+
+## When to Stay Silent
+If you’re uncertain whether something is an issue, don’t comment.
