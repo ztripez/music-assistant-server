@@ -106,10 +106,10 @@ class AirPlayPlayer(Player):
         self._attr_can_group_with = {provider.instance_id}
         self._attr_enabled_by_default = not is_broken_airplay_model(manufacturer, model)
 
-        # Set player type based on manufacturer:
-        # - Apple devices (HomePod, Apple TV, Mac) have native AirPlay support -> PLAYER
+        # Set player type based on manufacturer/model:
+        # - Apple devices (HomePod, Apple TV) have native AirPlay support -> PLAYER
         # - Non-Apple devices are generic AirPlay receivers -> PROTOCOL (wrapped in UniversalPlayer)
-        if is_apple_device(manufacturer):
+        if is_apple_device(manufacturer, model):
             self._attr_type = PlayerType.PLAYER
         else:
             self._attr_type = PlayerType.PROTOCOL
