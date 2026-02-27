@@ -101,6 +101,7 @@ class AirPlayPlayer(Player):
         if is_valid_mac_address(mac_address):
             self._attr_device_info.add_identifier(IdentifierType.MAC_ADDRESS, mac_address)
         self._attr_device_info.add_identifier(IdentifierType.IP_ADDRESS, address)
+        self._attr_device_info.add_identifier(IdentifierType.AIRPLAY_ID, player_id)
         self._attr_volume_level = initial_volume
         self._attr_can_group_with = {provider.instance_id}
         self._attr_enabled_by_default = not is_broken_airplay_model(manufacturer, model)

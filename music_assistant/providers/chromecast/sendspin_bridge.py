@@ -24,7 +24,7 @@ from aiosendspin.models.core import ClientHelloPayload
 from aiosendspin.models.core import DeviceInfo as SendspinDeviceInfo
 from aiosendspin.models.player import ClientHelloPlayerSupport, SupportedAudioFormat
 from aiosendspin.models.types import AudioCodec, PlayerCommand
-from music_assistant_models.enums import EventType
+from music_assistant_models.enums import EventType, IdentifierType
 
 from music_assistant.helpers.util import is_valid_mac_address
 from music_assistant.providers.sendspin.bridge_role import (
@@ -103,12 +103,14 @@ class SendspinChromecastBridge:
         provider: ChromecastProvider,
         cast_player: ChromecastPlayer,
         sendspin_server: SendspinServer,
+        bridge_client_id: str,
     ) -> None:
         """Initialize the bridge.
 
         :param provider: The Chromecast provider instance.
         :param cast_player: The Chromecast player to bridge.
         :param sendspin_server: The Sendspin server to register with.
+        :param bridge_client_id: The pre-resolved Sendspin client ID for this device.
         """
         self.provider = provider
         self.mass = provider.mass
@@ -117,17 +119,12 @@ class SendspinChromecastBridge:
         self.logger = provider.logger.getChild(f"bridge.{cast_player.player_id}")
 
         self._sendspin_client: SendspinClient | None = None
-        self._bridge_client_id: str | None = None
+        self._bridge_client_id: str = bridge_client_id
         self._bridge_role: BridgePlayerRole | None = None
         self._launch_task: asyncio.Task[None] | None = None
 
     @property
-    def is_registered(self) -> bool:
-        """Return whether the bridge is registered with Sendspin."""
-        return self._sendspin_client is not None
-
-    @property
-    def bridge_client_id(self) -> str | None:
+    def bridge_client_id(self) -> str:
         """Return the bridge client_id."""
         return self._bridge_client_id
 
@@ -138,27 +135,6 @@ class SendspinChromecastBridge:
 
     async def start(self) -> None:
         """Register the Chromecast player as an external Sendspin client."""
-        self._bridge_client_id = get_bridge_client_id(self.cast_player)
-        if not self._bridge_client_id:
-            self.logger.warning(
-                "Cannot create Sendspin bridge for %s: no valid MAC address",
-                self.cast_player.display_name,
-            )
-            return
-
-        # Check if another bridge (e.g. AirPlay) already registered this client_id.
-        # Devices that support both AirPlay and Chromecast share the same MAC,
-        # so only the first bridge to register wins.
-        if self.sendspin_server.get_client(self._bridge_client_id):
-            self.logger.debug(
-                "Sendspin client %s already registered (likely by another bridge), "
-                "skipping Chromecast bridge for %s",
-                self._bridge_client_id,
-                self.cast_player.display_name,
-            )
-            self._bridge_client_id = None
-            return
-
         hello = ClientHelloPayload(
             client_id=self._bridge_client_id,
             name=f"{self.cast_player.display_name} (Cast)",
@@ -215,7 +191,7 @@ class SendspinChromecastBridge:
                 await self._launch_task
             self._launch_task = None
 
-        if self._sendspin_client and self._bridge_client_id:
+        if self._sendspin_client:
             await self.sendspin_server.remove_client(self._bridge_client_id)
             self._sendspin_client = None
             self._bridge_role = None
@@ -242,9 +218,6 @@ class SendspinChromecastBridge:
 
     async def _launch_sendspin_app(self) -> None:
         """Launch the Sendspin Cast Receiver app and send the server config."""
-        if not self._bridge_client_id:
-            return
-
         try:
             # Launch the Sendspin Cast App on the Chromecast.
             # force_launch=True ensures the Cast device kills any running app
@@ -293,8 +266,6 @@ class SendspinChromecastBridge:
 
     def _get_sync_delay(self) -> int:
         """Get the sync delay from the Sendspin player's config."""
-        if not self._bridge_client_id:
-            return DEFAULT_SENDSPIN_SYNC_DELAY
         return int(
             self.mass.config.get_raw_player_config_value(
                 self._bridge_client_id,
@@ -335,8 +306,6 @@ class SendspinChromecastBridge:
 
     async def push_runtime_config_update(self) -> None:
         """Push updated runtime config (including sync delay) to active Cast app."""
-        if not self._bridge_client_id:
-            return
         await self._send_sendspin_config_with_retry()
 
     async def _send_sendspin_config(self) -> None:
@@ -345,9 +314,6 @@ class SendspinChromecastBridge:
         The Cast app uses this info to connect its JS Sendspin client
         back to the server with the same client_id.
         """
-        if not self._bridge_client_id:
-            return
-
         # The Sendspin server runs on its own port (8927), NOT through
         # the MA webserver or streams server. Use publish_ip directly.
         publish_ip = self.mass.streams.publish_ip
@@ -411,15 +377,26 @@ class SendspinBridgeManager:
         return None
 
     async def setup_bridge(self, cast_player: ChromecastPlayer) -> None:
-        """Set up a Sendspin bridge for a Chromecast player.
-
-        Groups and stereo pairs are skipped (they have no MAC address).
-        Devices on the blocklist are skipped so other protocols can handle them.
+        """
+        Set up a Sendspin bridge for a Chromecast player.
 
         :param cast_player: The Chromecast player to bridge.
         """
         async with self._lock:
             player_id = cast_player.player_id
+
+            if player_id in self._bridges:
+                self.logger.debug("Bridge already exists for %s", cast_player.display_name)
+                return
+
+            # Resolve client_id from device MAC address
+            bridge_client_id = get_bridge_client_id(cast_player)
+            if not bridge_client_id:
+                self.logger.debug(
+                    "Skipping Sendspin Cast bridge for %s: no valid MAC address",
+                    cast_player.display_name,
+                )
+                return
 
             # Skip devices on the blocklist
             manufacturer = cast_player.device_info.manufacturer or ""
@@ -441,11 +418,29 @@ class SendspinBridgeManager:
                 )
                 return
 
-            if player_id in self._bridges:
-                self.logger.debug("Bridge already exists for %s", cast_player.display_name)
+            # Check if another bridge (e.g. AirPlay) already registered this client_id.
+            # Devices that support both AirPlay and Chromecast share the same MAC,
+            # so only the first bridge to register wins.
+            if sendspin_server.get_client(bridge_client_id):
+                self.logger.debug(
+                    "Sendspin client %s already registered (likely by another bridge), "
+                    "skipping Chromecast bridge for %s",
+                    bridge_client_id,
+                    cast_player.display_name,
+                )
                 return
 
-            bridge = SendspinChromecastBridge(self.provider, cast_player, sendspin_server)
+            bridge = SendspinChromecastBridge(
+                self.provider, cast_player, sendspin_server, bridge_client_id
+            )
+
+            # Pre-register the Chromecast UUID so the resulting SendspinPlayer
+            # carries it as a CAST_UUID identifier for cross-protocol matching.
+            if sendspin_provider := self.sendspin_provider:
+                sendspin_provider.register_bridge_identifiers(
+                    bridge_client_id,
+                    {IdentifierType.CAST_UUID: str(cast_player.cast_info.uuid)},
+                )
 
             try:
                 await bridge.start()
@@ -455,9 +450,6 @@ class SendspinBridgeManager:
                 )
                 with suppress(Exception):
                     await bridge.stop()
-                return
-
-            if not bridge.is_registered:
                 return
 
             self._bridges[player_id] = bridge

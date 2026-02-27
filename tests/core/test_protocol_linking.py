@@ -290,6 +290,124 @@ class TestIdentifiersMatch:
 
         assert controller._identifiers_match(player_a, player_b) is False
 
+    def test_cast_uuid_match(self, mock_mass: MagicMock) -> None:
+        """Test that CAST_UUID identifiers match for cross-protocol linking.
+
+        When a Chromecast device has no valid MAC (non-Google devices like SEI Robotics),
+        the CAST_UUID identifier allows matching the Chromecast player with its
+        Sendspin bridge player.
+        """
+        controller = PlayerController(mock_mass)
+
+        provider = MockProvider("test")
+        # Chromecast player with UUID and CAST_UUID but no MAC
+        player_a = MockPlayer(
+            provider,
+            "player_a",
+            "Android TV (Cast)",
+            player_type=PlayerType.PROTOCOL,
+            identifiers={
+                IdentifierType.UUID: "88ef6168-67d7-3d08-fae8-b1b1709c1ed7",
+                IdentifierType.CAST_UUID: "88ef6168-67d7-3d08-fae8-b1b1709c1ed7",
+                IdentifierType.IP_ADDRESS: "192.168.1.228",
+            },
+        )
+        # Sendspin bridge player with only MAC and CAST_UUID (no UUID, no IP)
+        player_b = MockPlayer(
+            provider,
+            "player_b",
+            "Android TV (Sendspin)",
+            player_type=PlayerType.PROTOCOL,
+            identifiers={
+                IdentifierType.MAC_ADDRESS: "D4:CF:F9:D9:DA:FD",
+                IdentifierType.CAST_UUID: "88ef6168-67d7-3d08-fae8-b1b1709c1ed7",
+            },
+        )
+
+        # Should match via CAST_UUID even though they share no MAC, UUID, or IP
+        assert controller._identifiers_match(player_a, player_b) is True
+
+    def test_cast_uuid_no_match(self, mock_mass: MagicMock) -> None:
+        """Test that different CAST_UUIDs don't match."""
+        controller = PlayerController(mock_mass)
+
+        provider = MockProvider("test")
+        player_a = MockPlayer(
+            provider,
+            "player_a",
+            "Device A",
+            player_type=PlayerType.PROTOCOL,
+            identifiers={IdentifierType.CAST_UUID: "88ef6168-67d7-3d08-fae8-b1b1709c1ed7"},
+        )
+        player_b = MockPlayer(
+            provider,
+            "player_b",
+            "Device B",
+            player_type=PlayerType.PROTOCOL,
+            identifiers={IdentifierType.CAST_UUID: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"},
+        )
+
+        assert controller._identifiers_match(player_a, player_b) is False
+
+    def test_airplay_id_match(self, mock_mass: MagicMock) -> None:
+        """Test that AIRPLAY_ID identifiers match for cross-protocol linking.
+
+        When an AirPlay device's MAC has locally-administered bit differences,
+        AIRPLAY_ID provides a reliable secondary match path between the AirPlay
+        player and its Sendspin bridge player.
+        """
+        controller = PlayerController(mock_mass)
+
+        provider = MockProvider("test")
+        # AirPlay player with its player_id as AIRPLAY_ID
+        player_a = MockPlayer(
+            provider,
+            "player_a",
+            "Apple TV (AirPlay)",
+            player_type=PlayerType.PROTOCOL,
+            identifiers={
+                IdentifierType.MAC_ADDRESS: "54:78:1A:D4:FF:44",
+                IdentifierType.AIRPLAY_ID: "ap54781ad4ff44",
+                IdentifierType.IP_ADDRESS: "192.168.1.50",
+            },
+        )
+        # Sendspin bridge player with MAC and AIRPLAY_ID
+        player_b = MockPlayer(
+            provider,
+            "player_b",
+            "Apple TV (Sendspin)",
+            player_type=PlayerType.PROTOCOL,
+            identifiers={
+                IdentifierType.MAC_ADDRESS: "54:78:1A:D4:FF:44",
+                IdentifierType.AIRPLAY_ID: "ap54781ad4ff44",
+            },
+        )
+
+        # Should match via both MAC and AIRPLAY_ID
+        assert controller._identifiers_match(player_a, player_b) is True
+
+    def test_airplay_id_no_match(self, mock_mass: MagicMock) -> None:
+        """Test that different AIRPLAY_IDs don't match."""
+        controller = PlayerController(mock_mass)
+
+        provider = MockProvider("test")
+        player_a = MockPlayer(
+            provider,
+            "player_a",
+            "Device A",
+            player_type=PlayerType.PROTOCOL,
+            identifiers={IdentifierType.AIRPLAY_ID: "ap54781ad4ff44"},
+        )
+        player_b = MockPlayer(
+            provider,
+            "player_b",
+            "Device B",
+            player_type=PlayerType.PROTOCOL,
+            identifiers={IdentifierType.AIRPLAY_ID: "apaabbccddeeff"},
+        )
+
+        assert controller._identifiers_match(player_a, player_b) is False
+
 
 class TestProtocolPlayerDetection:
     """Tests for protocol player type detection."""

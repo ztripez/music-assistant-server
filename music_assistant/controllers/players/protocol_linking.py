@@ -825,11 +825,13 @@ class ProtocolLinkingMixin:
         identifiers_b = player_b.device_info.identifiers
 
         # Check identifiers in order of reliability
-        # MAC_ADDRESS > SERIAL_NUMBER > UUID
+        # MAC_ADDRESS > SERIAL_NUMBER > UUID > CAST_UUID > AIRPLAY_ID
         for conn_type in (
             IdentifierType.MAC_ADDRESS,
             IdentifierType.SERIAL_NUMBER,
             IdentifierType.UUID,
+            IdentifierType.CAST_UUID,
+            IdentifierType.AIRPLAY_ID,
         ):
             val_a = identifiers_a.get(conn_type)
             val_b = identifiers_b.get(conn_type)
