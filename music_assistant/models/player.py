@@ -50,7 +50,7 @@ from music_assistant.constants import (
     CONF_EXPOSE_PLAYER_TO_HA,
     CONF_FLOW_MODE,
     CONF_HIDE_IN_UI,
-    CONF_LINKED_PROTOCOL_PLAYER_IDS,
+    CONF_LINKED_PROTOCOL_IDS,
     CONF_MUTE_CONTROL,
     CONF_PLAYERS,
     CONF_POWER_CONTROL,
@@ -909,7 +909,7 @@ class Player(ABC):
         Includes:
         - Native playback (if player supports PLAY_MEDIA and is not a protocol/universal player)
         - Active protocol players from linked_output_protocols
-        - Disabled protocols from cached linked_protocol_player_ids in config
+        - Disabled protocols from cached linked_protocol_ids in config
 
         Each entry has an available flag indicating current availability.
         """
@@ -959,7 +959,7 @@ class Player(ABC):
 
         # Add disabled protocols from cache
         cached_protocol_ids: list[str] = self.mass.config.get(
-            f"{CONF_PLAYERS}/{self.player_id}/values/{CONF_LINKED_PROTOCOL_PLAYER_IDS}",
+            f"{CONF_PLAYERS}/{self.player_id}/values/{CONF_LINKED_PROTOCOL_IDS}",
             [],
         )
         for protocol_id in cached_protocol_ids:
