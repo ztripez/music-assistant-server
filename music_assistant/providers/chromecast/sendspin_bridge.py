@@ -389,13 +389,23 @@ class SendspinBridgeManager:
                 self.logger.debug("Bridge already exists for %s", cast_player.display_name)
                 return
 
+            # Skip bridging for audio groups and multichannel children
+            if cast_player.cast_info.is_audio_group:
+                return
+            if cast_player.cast_info.is_multichannel_child:
+                return
+
+            # skip if the cast player's parent also has airplay linked
+            # (we prefer the airplay bridge due to better sync performance))
+            if cast_player.protocol_parent_id:
+                parent_player = self.mass.players.get_player(cast_player.protocol_parent_id)
+                for protocol in parent_player.linked_output_protocols:
+                    if protocol.protocol_domain == "airplay":
+                        return
+
             # Resolve client_id from device MAC address
             bridge_client_id = get_bridge_client_id(cast_player)
             if not bridge_client_id:
-                self.logger.debug(
-                    "Skipping Sendspin Cast bridge for %s: no valid MAC address",
-                    cast_player.display_name,
-                )
                 return
 
             # Skip devices on the blocklist
