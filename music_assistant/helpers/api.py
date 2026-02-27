@@ -187,6 +187,7 @@ class APICommandHandler:
     target: Callable[..., Coroutine[Any, Any, Any] | AsyncGenerator[Any, Any]]
     authenticated: bool = True
     required_role: str | None = None  # "admin" or "user" or None
+    required_permissions: list[Any] | None = None  # list of Permission enum values
     alias: bool = False  # If True, this is an alias for backward compatibility
 
     @classmethod
@@ -196,6 +197,7 @@ class APICommandHandler:
         func: Callable[..., Coroutine[Any, Any, Any] | AsyncGenerator[Any, Any]],
         authenticated: bool = True,
         required_role: str | None = None,
+        required_permissions: list[Any] | None = None,
         alias: bool = False,
     ) -> APICommandHandler:
         """Parse APICommandHandler by providing a function.
@@ -205,6 +207,7 @@ class APICommandHandler:
         :param authenticated: Whether authentication is required (default: True).
         :param required_role: Required user role ("admin" or "user")
             None for any authenticated user.
+        :param required_permissions: List of Permission scopes required to call this command.
         :param alias: Whether this is an alias for backward compatibility (default: False).
         """
         type_hints = get_type_hints(func)
@@ -267,24 +270,30 @@ class APICommandHandler:
             target=func,
             authenticated=authenticated,
             required_role=required_role,
+            required_permissions=required_permissions,
             alias=alias,
         )
 
 
 def api_command(
-    command: str, authenticated: bool = True, required_role: str | None = None
+    command: str,
+    authenticated: bool = True,
+    required_role: str | None = None,
+    required_permissions: list[Any] | None = None,
 ) -> Callable[[_F], _F]:
     """Decorate a function as API route/command.
 
     :param command: The command name/path.
     :param authenticated: Whether authentication is required (default: True).
     :param required_role: Required user role ("admin" or "user"), None means any authenticated user.
+    :param required_permissions: List of Permission scopes required to call this command.
     """
 
     def decorate(func: _F) -> _F:
         func.api_cmd = command  # type: ignore[attr-defined]
         func.api_authenticated = authenticated  # type: ignore[attr-defined]
         func.api_required_role = required_role  # type: ignore[attr-defined]
+        func.api_required_permissions = required_permissions  # type: ignore[attr-defined]
         return func
 
     return decorate

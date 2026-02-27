@@ -34,6 +34,7 @@ from music_assistant.controllers.webserver.helpers.auth_middleware import get_cu
 from music_assistant.helpers.compare import compare_media_item, create_safe_string
 from music_assistant.helpers.database import UNSET
 from music_assistant.helpers.json import json_loads, serialize_to_json
+from music_assistant.helpers.permissions import Permission
 from music_assistant.helpers.util import guard_single_request, parse_optional_bool
 
 if TYPE_CHECKING:
@@ -124,10 +125,14 @@ class MediaControllerBase[ItemCls: "MediaItemType"](metaclass=ABCMeta):
             f"music/{api_base}/get_{self.media_type}", self.get, alias=True
         )
         self.mass.register_api_command(
-            f"music/{api_base}/update", self.update_item_in_library, required_role="admin"
+            f"music/{api_base}/update",
+            self.update_item_in_library,
+            required_permissions=[Permission.LIBRARY_WRITE],
         )
         self.mass.register_api_command(
-            f"music/{api_base}/remove", self.remove_item_from_library, required_role="admin"
+            f"music/{api_base}/remove",
+            self.remove_item_from_library,
+            required_permissions=[Permission.LIBRARY_DELETE],
         )
         self._db_add_lock = asyncio.Lock()
 

@@ -17,6 +17,7 @@ from music_assistant_models.enums import EventType
 
 from music_assistant.constants import CONF_CORE
 from music_assistant.controllers.webserver.remote_access.gateway import WebRTCGateway
+from music_assistant.helpers.permissions import Permission
 from music_assistant.helpers.webrtc_certificate import (
     get_or_create_webrtc_certificate,
     get_remote_id_from_certificate,
@@ -269,11 +270,15 @@ class RemoteAccessManager:
 
         self._on_unload_callbacks.append(
             self.mass.register_api_command(
-                "remote_access/info", get_remote_access_info, required_role="admin"
+                "remote_access/info",
+                get_remote_access_info,
+                required_permissions=[Permission.CONFIG_READ],
             )
         )
         self._on_unload_callbacks.append(
             self.mass.register_api_command(
-                "remote_access/configure", configure_remote_access, required_role="admin"
+                "remote_access/configure",
+                configure_remote_access,
+                required_permissions=[Permission.CONFIG_WRITE],
             )
         )

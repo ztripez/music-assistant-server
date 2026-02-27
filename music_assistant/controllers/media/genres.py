@@ -37,6 +37,7 @@ from music_assistant.constants import (
 from music_assistant.helpers.compare import create_safe_string
 from music_assistant.helpers.database import UNSET
 from music_assistant.helpers.json import serialize_to_json
+from music_assistant.helpers.permissions import Permission
 
 from .base import MediaControllerBase
 
@@ -82,33 +83,39 @@ class GenreController(MediaControllerBase[Genre]):
 
         # register extra api handlers
         self.mass.register_api_command(
-            "music/genres/add_alias", self.add_alias, required_role="admin"
+            "music/genres/add_alias",
+            self.add_alias,
+            required_permissions=[Permission.LIBRARY_WRITE],
         )
         self.mass.register_api_command(
-            "music/genres/remove_alias", self.remove_alias, required_role="admin"
+            "music/genres/remove_alias",
+            self.remove_alias,
+            required_permissions=[Permission.LIBRARY_WRITE],
         )
         self.mass.register_api_command(
-            "music/genres/add_media_mapping", self.add_media_mapping, required_role="admin"
+            "music/genres/add_media_mapping",
+            self.add_media_mapping,
+            required_permissions=[Permission.LIBRARY_WRITE],
         )
         self.mass.register_api_command(
             "music/genres/remove_media_mapping",
             self.remove_media_mapping,
-            required_role="admin",
+            required_permissions=[Permission.LIBRARY_WRITE],
         )
         self.mass.register_api_command(
             "music/genres/promote_alias",
             self.promote_alias_to_genre,
-            required_role="admin",
+            required_permissions=[Permission.LIBRARY_WRITE],
         )
         self.mass.register_api_command(
             "music/genres/restore_defaults",
             self.restore_default_genres,
-            required_role="admin",
+            required_permissions=[Permission.LIBRARY_WRITE],
         )
         self.mass.register_api_command(
             "music/genres/add",
             self.add_item_to_library,
-            required_role="admin",
+            required_permissions=[Permission.LIBRARY_WRITE],
         )
         self.mass.register_api_command(
             "music/genres/overview",
@@ -121,7 +128,7 @@ class GenreController(MediaControllerBase[Genre]):
         self.mass.register_api_command(
             "music/genres/scan_mappings",
             self.scan_mappings,
-            required_role="admin",
+            required_permissions=[Permission.LIBRARY_WRITE],
         )
         self.mass.register_api_command(
             "music/genres/scanner_status",
@@ -134,7 +141,7 @@ class GenreController(MediaControllerBase[Genre]):
         self.mass.register_api_command(
             "music/genres/merge",
             self.merge_genres,
-            required_role="admin",
+            required_permissions=[Permission.LIBRARY_WRITE],
         )
 
         # Run genre mapping scanner after library sync completes

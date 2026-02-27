@@ -108,6 +108,7 @@ from music_assistant.constants import (
 )
 from music_assistant.helpers.api import api_command
 from music_assistant.helpers.json import JSON_DECODE_EXCEPTIONS, async_json_dumps, async_json_loads
+from music_assistant.helpers.permissions import Permission
 from music_assistant.helpers.util import load_provider_module, validate_announcement_chime_url
 from music_assistant.models import ProviderModuleType
 from music_assistant.models.music_provider import MusicProvider
@@ -475,7 +476,7 @@ class ConfigController:
                     entry.value = values.get(entry.key, entry.default_value)
         return all_entries
 
-    @api_command("config/providers/save", required_role="admin")
+    @api_command("config/providers/save", required_permissions=[Permission.PROVIDERS_MANAGE])
     async def save_provider_config(
         self,
         provider_domain: str,
@@ -496,7 +497,7 @@ class ConfigController:
         # return full config, just in case
         return await self.get_provider_config(config.instance_id)
 
-    @api_command("config/providers/remove", required_role="admin")
+    @api_command("config/providers/remove", required_permissions=[Permission.PROVIDERS_MANAGE])
     async def remove_provider_config(self, instance_id: str) -> None:
         """Remove ProviderConfig."""
         conf_key = f"{CONF_PROVIDERS}/{instance_id}"
@@ -796,7 +797,7 @@ class ConfigController:
             }
         return cast("PlayerConfig", PlayerConfig.parse([], raw_conf))
 
-    @api_command("config/players/save", required_role="admin")
+    @api_command("config/players/save", required_permissions=[Permission.PLAYERS_CONFIGURE])
     async def save_player_config(
         self, player_id: str, values: dict[str, ConfigValueType]
     ) -> PlayerConfig:
@@ -838,7 +839,7 @@ class ConfigController:
         # return full player config (just in case)
         return await self.get_player_config(player_id)
 
-    @api_command("config/players/remove", required_role="admin")
+    @api_command("config/players/remove", required_permissions=[Permission.PLAYERS_CONFIGURE])
     async def remove_player_config(self, player_id: str) -> None:
         """Remove PlayerConfig."""
         conf_key = f"{CONF_PLAYERS}/{player_id}"
@@ -930,7 +931,7 @@ class ConfigController:
         dsp_config.enabled = False
         return dsp_config
 
-    @api_command("config/players/dsp/save", required_role="admin")
+    @api_command("config/players/dsp/save", required_permissions=[Permission.PLAYERS_CONFIGURE])
     async def save_dsp_config(self, player_id: str, config: DSPConfig) -> DSPConfig:
         """
         Save/update DSPConfig for a player.
@@ -957,7 +958,7 @@ class ConfigController:
         raw_presets = self.get(CONF_PLAYER_DSP_PRESETS, {})
         return [DSPConfigPreset.from_dict(preset) for preset in raw_presets.values()]
 
-    @api_command("config/dsp_presets/save", required_role="admin")
+    @api_command("config/dsp_presets/save", required_permissions=[Permission.CONFIG_WRITE])
     async def save_dsp_presets(self, preset: DSPConfigPreset) -> DSPConfigPreset:
         """
         Save/update a user-defined DSP presets.
@@ -982,7 +983,7 @@ class ConfigController:
 
         return preset
 
-    @api_command("config/dsp_presets/remove", required_role="admin")
+    @api_command("config/dsp_presets/remove", required_permissions=[Permission.CONFIG_WRITE])
     async def remove_dsp_preset(self, preset_id: str) -> None:
         """Remove a user-defined DSP preset."""
         self.mass.config.remove(f"{CONF_PLAYER_DSP_PRESETS}/preset_{preset_id}")
@@ -1152,7 +1153,7 @@ class ConfigController:
                     entry.value = values.get(entry.key, entry.default_value)
         return all_entries
 
-    @api_command("config/core/save", required_role="admin")
+    @api_command("config/core/save", required_permissions=[Permission.CONFIG_WRITE])
     async def save_core_config(
         self,
         domain: str,
@@ -1469,7 +1470,7 @@ class ConfigController:
             await _file.write(await async_json_dumps(self._data, indent=True))
         LOGGER.debug("Saved data to persistent storage")
 
-    @api_command("config/providers/reload", required_role="admin")
+    @api_command("config/providers/reload", required_permissions=[Permission.PROVIDERS_MANAGE])
     async def _reload_provider(self, instance_id: str) -> None:
         """Reload provider."""
         try:

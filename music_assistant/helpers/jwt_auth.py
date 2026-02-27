@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 import jwt
 
 from music_assistant.helpers.datetime import utc
+from music_assistant.helpers.permissions import get_permissions_for_role
 
 if TYPE_CHECKING:
     from music_assistant_models.auth import User
@@ -63,6 +64,7 @@ class JWTHelper:
             "exp": int(expires_at.timestamp()),
             "username": user.username,
             "role": user.role.value,
+            "permissions": get_permissions_for_role(user.role),
             "token_name": token_name,
             "is_long_lived": is_long_lived,
         }

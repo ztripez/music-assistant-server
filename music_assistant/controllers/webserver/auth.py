@@ -42,6 +42,7 @@ from music_assistant.helpers.database import DatabaseConnection
 from music_assistant.helpers.datetime import utc
 from music_assistant.helpers.json import json_dumps, json_loads
 from music_assistant.helpers.jwt_auth import JWTHelper
+from music_assistant.helpers.permissions import Permission
 
 if TYPE_CHECKING:
     from music_assistant.controllers.webserver import WebserverController
@@ -443,7 +444,10 @@ class AuthenticationManager:
                 updates,
             )
 
-            return await self.get_user(user_id)
+            user = await self.get_user(user_id)
+            if user:
+                self._attach_permissions(user, payload)
+            return user
 
         except pyjwt.ExpiredSignatureError:
             if token_id := self.jwt_helper.get_token_id(token):
@@ -485,8 +489,29 @@ class AuthenticationManager:
             legacy_updates,
         )
 
-        # Get user
-        return await self.get_user(token_row["user_id"])
+        # Get user (legacy token — generate permissions from role)
+        user = await self.get_user(token_row["user_id"])
+        if user:
+            self._attach_permissions(user)
+        return user
+
+    def _attach_permissions(self, user: User, jwt_payload: dict[str, Any] | None = None) -> None:
+        """Attach permission and claims data to a User object.
+
+        When a JWT payload is available, permissions and claims are extracted
+        from it. Otherwise, permissions are generated from the user's role.
+
+        :param user: User object to attach permissions to.
+        :param jwt_payload: Decoded JWT payload (if available).
+        """
+        from music_assistant.helpers.permissions import get_permissions_for_role  # noqa: PLC0415
+
+        if jwt_payload and "permissions" in jwt_payload:
+            user.permissions = jwt_payload["permissions"]  # type: ignore[attr-defined]
+            user.claims = jwt_payload  # type: ignore[attr-defined]
+        else:
+            user.permissions = get_permissions_for_role(user.role)  # type: ignore[attr-defined]
+            user.claims = {}  # type: ignore[attr-defined]
 
     async def get_token_id_from_token(self, token: str) -> str | None:
         """
@@ -506,7 +531,7 @@ class AuthenticationManager:
             return None
         return str(token_row["token_id"])
 
-    @api_command("auth/user", required_role="admin")
+    @api_command("auth/user", required_permissions=[Permission.USERS_MANAGE])
     async def get_user(self, user_id: str) -> User | None:
         """
         Get user by ID (admin only).
@@ -976,7 +1001,7 @@ class AuthenticationManager:
         )
         return [AuthToken.from_dict(dict(row)) for row in token_rows]
 
-    @api_command("auth/users", required_role="admin")
+    @api_command("auth/users", required_permissions=[Permission.USERS_MANAGE])
     async def list_users(self) -> list[User]:
         """
         Get all users (admin only).
@@ -1029,7 +1054,7 @@ class AuthenticationManager:
         )
         return True
 
-    @api_command("auth/user/enable", required_role="admin")
+    @api_command("auth/user/enable", required_permissions=[Permission.USERS_MANAGE])
     async def enable_user(self, user_id: str) -> None:
         """
         Enable user account (admin only).
@@ -1042,7 +1067,7 @@ class AuthenticationManager:
             {"enabled": 1},
         )
 
-    @api_command("auth/user/disable", required_role="admin")
+    @api_command("auth/user/disable", required_permissions=[Permission.USERS_MANAGE])
     async def disable_user(self, user_id: str) -> None:
         """
         Disable user account (admin only).
@@ -1249,7 +1274,7 @@ class AuthenticationManager:
         self.logger.info("Created long-lived token '%s' for user '%s'", name, target_user.username)
         return token
 
-    @api_command("auth/user/create", required_role="admin")
+    @api_command("auth/user/create", required_permissions=[Permission.USERS_MANAGE])
     async def create_user_with_api(
         self,
         username: str,
@@ -1310,7 +1335,7 @@ class AuthenticationManager:
         self.logger.info("User created by admin: %s (role: %s)", username, role)
         return user
 
-    @api_command("auth/user/delete", required_role="admin")
+    @api_command("auth/user/delete", required_permissions=[Permission.USERS_MANAGE])
     async def delete_user(self, user_id: str) -> None:
         """
         Delete user account (admin only).
@@ -1522,7 +1547,7 @@ class AuthenticationManager:
         providers = [UserAuthProvider.from_dict(dict(row)) for row in rows]
         return [p.to_dict() for p in providers]
 
-    @api_command("auth/user/unlink_provider", required_role="admin")
+    @api_command("auth/user/unlink_provider", required_permissions=[Permission.USERS_MANAGE])
     async def unlink_provider(self, user_id: str, provider_type: str) -> bool:
         """
         Unlink authentication provider from user (admin only).
@@ -1748,7 +1773,7 @@ class AuthenticationManager:
                 "error": "Failed to create access token",
             }
 
-    @api_command("auth/join_codes", required_role="admin")
+    @api_command("auth/join_codes", required_permissions=[Permission.USERS_MANAGE])
     async def list_join_codes(self, user_id: str | None = None) -> list[dict[str, Any]]:
         """List join codes, optionally filtered by user (admin only).
 
@@ -1759,7 +1784,7 @@ class AuthenticationManager:
         rows = await self.database.get_rows("join_codes", filter_args, limit=100)
         return [dict(row) for row in rows]
 
-    @api_command("auth/join_code/revoke", required_role="admin")
+    @api_command("auth/join_code/revoke", required_permissions=[Permission.USERS_MANAGE])
     async def revoke_join_code(self, code_id: str) -> None:
         """Revoke a specific join code (admin only).
 

@@ -565,9 +565,18 @@ class WebserverController(CoreController):
                     headers={"WWW-Authenticate": 'Bearer realm="Music Assistant"'},
                 )
 
-            # Set user in context and check role
+            # Set user in context and check permissions/role
             set_current_user(user)
-            if handler.required_role == "admin" and user.role != UserRole.ADMIN:
+            if handler.required_permissions:
+                from music_assistant.helpers.permissions import has_permission  # noqa: PLC0415
+
+                if not has_permission(user, *handler.required_permissions):
+                    perm_names = [p.value for p in handler.required_permissions]
+                    return web.Response(
+                        status=403,
+                        text=f"Missing required permissions: {perm_names}",
+                    )
+            elif handler.required_role == "admin" and user.role != UserRole.ADMIN:
                 return web.Response(
                     status=403,
                     text="Admin access required",

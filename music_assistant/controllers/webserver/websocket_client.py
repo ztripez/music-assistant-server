@@ -208,8 +208,22 @@ class WebsocketClientHandler:
             set_current_token(self._current_token)
             set_sendspin_player_id(self._sendspin_player_id)
 
-            # Check role if required
-            if handler.required_role == "admin":
+            # Check permissions if required (takes precedence over role check)
+            if handler.required_permissions:
+                from music_assistant.helpers.permissions import has_permission  # noqa: PLC0415
+
+                if not has_permission(self._authenticated_user, *handler.required_permissions):
+                    perm_names = [p.value for p in handler.required_permissions]
+                    await self._send_message(
+                        ErrorResultMessage(
+                            msg.message_id,
+                            InsufficientPermissions.error_code,
+                            f"Missing required permissions: {perm_names}",
+                        )
+                    )
+                    return
+            # Fall back to role check for commands without permissions
+            elif handler.required_role == "admin":
                 if self._authenticated_user.role != UserRole.ADMIN:
                     await self._send_message(
                         ErrorResultMessage(

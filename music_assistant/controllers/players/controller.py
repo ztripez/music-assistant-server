@@ -83,6 +83,7 @@ from music_assistant.controllers.webserver.helpers.auth_middleware import (
     get_sendspin_player_id,
 )
 from music_assistant.helpers.api import api_command
+from music_assistant.helpers.permissions import Permission
 from music_assistant.helpers.tags import async_parse_tags
 from music_assistant.helpers.throttle_retry import Throttler
 from music_assistant.helpers.util import TaskManager, validate_announcement_chime_url
@@ -1114,7 +1115,7 @@ class PlayerController(ProtocolLinkingMixin, CoreController):
         for player_id in list(player_ids):
             await self.cmd_ungroup(player_id)
 
-    @api_command("players/create_group_player", required_role="admin")
+    @api_command("players/create_group_player", required_permissions=[Permission.PLAYERS_CONFIGURE])
     async def create_group_player(
         self, provider: str, name: str, members: list[str], dynamic: bool = True
     ) -> Player:
@@ -1135,7 +1136,7 @@ class PlayerController(ProtocolLinkingMixin, CoreController):
             )
         return await provider_instance.create_group_player(name, members, dynamic)
 
-    @api_command("players/remove_group_player", required_role="admin")
+    @api_command("players/remove_group_player", required_permissions=[Permission.PLAYERS_CONFIGURE])
     async def remove_group_player(self, player_id: str) -> None:
         """Remove a group player."""
         if not (player := self.get_player(player_id)):
@@ -1360,7 +1361,7 @@ class PlayerController(ProtocolLinkingMixin, CoreController):
         # Schedule debounced update of all players since can_group_with values may change
         self._schedule_update_all_players()
 
-    @api_command("players/remove", required_role="admin")
+    @api_command("players/remove", required_permissions=[Permission.PLAYERS_CONFIGURE])
     async def remove(self, player_id: str) -> None:
         """
         Remove a player from a provider.

@@ -1117,6 +1117,7 @@ def generate_commands_json(command_handlers: dict[str, APICommandHandler]) -> li
         "return_type": str,  # Return type
         "authenticated": bool,  # Whether authentication is required
         "required_role": str | None,  # Required user role (if any)
+        "required_permissions": list[str] | None,  # Required permission scopes (if any)
     }
     """
     commands_data = []
@@ -1171,6 +1172,11 @@ def generate_commands_json(command_handlers: dict[str, APICommandHandler]) -> li
                 "return_type": return_type_str,
                 "authenticated": handler.authenticated,
                 "required_role": handler.required_role,
+                "required_permissions": (
+                    [p.value for p in handler.required_permissions]
+                    if handler.required_permissions
+                    else None
+                ),
             }
         )
 
