@@ -50,11 +50,6 @@ from music_assistant_models.enums import (
 from music_assistant_models.player import DeviceInfo
 from PIL import Image
 
-from music_assistant.constants import (
-    CONF_ENTRY_HTTP_PROFILE_HIDDEN,
-    CONF_ENTRY_OUTPUT_CODEC_HIDDEN,
-    CONF_ENTRY_SAMPLE_RATES,
-)
 from music_assistant.helpers.util import is_valid_mac_address
 from music_assistant.models.player import Player, PlayerMedia
 
@@ -632,14 +627,7 @@ class SendspinPlayer(Player):
         values: dict[str, ConfigValueType] | None = None,
     ) -> list[ConfigEntry]:
         """Return all (provider/player specific) Config Entries for the player."""
-        default_entries = await super().get_config_entries(action=action, values=values)
-        entries = [
-            *default_entries,
-            CONF_ENTRY_OUTPUT_CODEC_HIDDEN,
-            CONF_ENTRY_HTTP_PROFILE_HIDDEN,
-            ConfigEntry.from_dict({**CONF_ENTRY_SAMPLE_RATES.to_dict(), "hidden": True}),
-        ]
-
+        entries: list[ConfigEntry] = []
         # Only show the sync delay setting for Chromecast Bridge players
         if self.device_info.model == "Chromecast Bridge":
             entries.append(
