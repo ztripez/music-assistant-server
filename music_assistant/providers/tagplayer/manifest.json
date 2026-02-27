@@ -1,0 +1,11 @@
+{
+  "type": "plugin",
+  "domain": "tagplayer",
+  "stage": "alpha",
+  "name": "Tag Player",
+  "description": "Link NFC tags, QR codes, or any identifier to media items for quick playback.",
+  "codeowners": ["@ztripez"],
+  "requirements": [],
+  "documentation": "https://music-assistant.io/music-providers/tagplayer/",
+  "icon": "nfc"
+}
