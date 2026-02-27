@@ -793,7 +793,7 @@ class TestSelectBestOutputProtocol:
                     output_protocol_id="dlna_AABBCCDDEEFF",
                     name="DLNA",
                     protocol_domain="dlna",
-                    priority=30,
+                    priority=50,
                 )
             ]
         )
@@ -869,7 +869,7 @@ class TestSelectBestOutputProtocol:
                     output_protocol_id="dlna_AABBCCDDEEFF",
                     name="DLNA",
                     protocol_domain="dlna",
-                    priority=30,
+                    priority=50,
                 ),
             ]
         )
@@ -1262,7 +1262,7 @@ class TestPlayerGrouping:
                     output_protocol_id="dlna_sonos",
                     name="DLNA",
                     protocol_domain="dlna",
-                    priority=30,  # Lower priority (higher number)
+                    priority=50,  # Lower priority (higher number)
                     available=True,
                 ),
                 OutputProtocol(
@@ -1280,7 +1280,7 @@ class TestPlayerGrouping:
                     output_protocol_id="dlna_wiim",
                     name="DLNA",
                     protocol_domain="dlna",
-                    priority=30,
+                    priority=50,
                     available=True,
                 ),
                 OutputProtocol(
@@ -1628,7 +1628,7 @@ class TestCanGroupWith:
                     output_protocol_id="dlna_sonos",
                     name="DLNA",
                     protocol_domain="dlna",
-                    priority=30,
+                    priority=50,
                     available=True,
                 ),
             ]
@@ -2459,7 +2459,7 @@ class TestNativeProtocolDomainPlayerGrouping:
                     output_protocol_id="sendspin_kantoor",
                     name="Sendspin",
                     protocol_domain="sendspin",
-                    priority=10,
+                    priority=40,
                     available=True,
                 )
             ]
@@ -2538,7 +2538,7 @@ class TestNativeProtocolDomainPlayerGrouping:
                     output_protocol_id="sendspin_kantoor",
                     name="Sendspin",
                     protocol_domain="sendspin",
-                    priority=10,
+                    priority=40,
                     available=True,
                 )
             ]
@@ -2617,7 +2617,7 @@ class TestNativeProtocolDomainPlayerGrouping:
                     output_protocol_id="sendspin_kantoor",
                     name="Sendspin",
                     protocol_domain="sendspin",
-                    priority=10,
+                    priority=40,
                     available=True,
                 )
             ]
