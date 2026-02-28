@@ -211,6 +211,9 @@ class SendspinChromecastBridge:
             self.cast_player.display_name,
             request.connection_reason,
         )
+        if not self.cast_player.available:
+            self.logger.warning("Cannot start Sendspin stream for %s: player not available")
+            return
         # Cancel any previous launch task
         if self._launch_task and not self._launch_task.done():
             self._launch_task.cancel()

@@ -208,6 +208,12 @@ class SendspinAirPlayBridge:
             self.airplay_player.display_name,
             request.connection_reason,
         )
+        if not self.airplay_player.available:
+            self.logger.warning(
+                "Cannot start Sendspin stream for %s: player not available",
+                self.airplay_player.display_name,
+            )
+            return
         # Capture and detach old stream resources before scheduling their cleanup.
         # This prevents the async cleanup from accidentally destroying the new
         # stream's resources, which reuse the same instance variables.
