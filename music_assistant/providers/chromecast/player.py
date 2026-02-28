@@ -35,6 +35,7 @@ from .constants import (
     CONF_ENTRY_SAMPLE_RATES_CAST_GROUP,
     CONF_USE_MASS_APP,
     MASS_APP_ID,
+    SENDSPIN_CAST_APP_ID,
 )
 from .helpers import CastStatusListener, ChromecastInfo
 
@@ -472,7 +473,7 @@ class ChromecastPlayer(Player):
         # active source
         if group_player:
             self._attr_active_source = group_player.active_source or group_player.player_id
-        elif self.cc.app_id in (MASS_APP_ID, APP_MEDIA_RECEIVER):
+        elif self.cc.app_id in (MASS_APP_ID, APP_MEDIA_RECEIVER, SENDSPIN_CAST_APP_ID):
             self._attr_active_source = None
         else:
             app_name = self.cc.app_display_name or "Unknown App"
