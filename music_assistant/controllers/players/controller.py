@@ -610,12 +610,12 @@ class PlayerController(ProtocolLinkingMixin, CoreController):
         if not (player := self.get_player(player_id)):
             return
         current_volume = player.state.volume_level or 0
-        if current_volume < 5 or current_volume > 95:
+        if current_volume < 10 or current_volume > 90:
             step_size = 1
-        elif current_volume < 20 or current_volume > 80:
+        elif current_volume < 30 or current_volume > 70:
             step_size = 2
         else:
-            step_size = 5
+            step_size = 3
         new_volume = min(100, current_volume + step_size)
         await self.cmd_volume_set(player_id, new_volume)
 
@@ -629,12 +629,12 @@ class PlayerController(ProtocolLinkingMixin, CoreController):
         if not (player := self.get_player(player_id)):
             return
         current_volume = player.state.volume_level or 0
-        if current_volume < 5 or current_volume > 95:
+        if current_volume < 10 or current_volume > 90:
             step_size = 1
-        elif current_volume < 20 or current_volume > 80:
+        elif current_volume < 30 or current_volume > 70:
             step_size = 2
         else:
-            step_size = 5
+            step_size = 3
         new_volume = max(0, current_volume - step_size)
         await self.cmd_volume_set(player_id, new_volume)
 
@@ -678,12 +678,12 @@ class PlayerController(ProtocolLinkingMixin, CoreController):
         cur_volume = group_player_state.group_volume
         if cur_volume is None:
             return
-        if cur_volume < 5 or cur_volume > 95:
+        if cur_volume < 10 or cur_volume > 90:
             step_size = 1
-        elif cur_volume < 20 or cur_volume > 80:
+        elif cur_volume < 30 or cur_volume > 70:
             step_size = 2
         else:
-            step_size = 5
+            step_size = 3
         new_volume = min(100, cur_volume + step_size)
         await self.cmd_group_volume(player_id, new_volume)
 
@@ -699,12 +699,12 @@ class PlayerController(ProtocolLinkingMixin, CoreController):
         cur_volume = group_player_state.group_volume
         if cur_volume is None:
             return
-        if cur_volume < 5 or cur_volume > 95:
+        if cur_volume < 10 or cur_volume > 90:
             step_size = 1
-        elif cur_volume < 20 or cur_volume > 80:
+        elif cur_volume < 30 or cur_volume > 70:
             step_size = 2
         else:
-            step_size = 5
+            step_size = 3
         new_volume = max(0, cur_volume - step_size)
         await self.cmd_group_volume(player_id, new_volume)
 
