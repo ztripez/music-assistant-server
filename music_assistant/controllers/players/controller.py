@@ -85,7 +85,11 @@ from music_assistant.controllers.webserver.helpers.auth_middleware import (
 from music_assistant.helpers.api import api_command
 from music_assistant.helpers.tags import async_parse_tags
 from music_assistant.helpers.throttle_retry import Throttler
-from music_assistant.helpers.util import TaskManager, validate_announcement_chime_url
+from music_assistant.helpers.util import (
+    TaskManager,
+    enrich_device_mac_address,
+    validate_announcement_chime_url,
+)
 from music_assistant.models.core_controller import CoreController
 from music_assistant.models.player import Player, PlayerMedia, PlayerState
 from music_assistant.models.player_provider import PlayerProvider
@@ -1236,6 +1240,10 @@ class PlayerController(ProtocolLinkingMixin, CoreController):
             if not player.state.enabled:
                 return
 
+            # Enrich device MAC address via ARP if needed
+            # (handles invalid MACs, locally-administered MACs, and missing MACs)
+            await enrich_device_mac_address(player.device_info, self.logger)
+
             # register throttler for this player
             self._player_throttlers[player_id] = Throttler(1, 0.05)
 
@@ -1269,8 +1277,6 @@ class PlayerController(ProtocolLinkingMixin, CoreController):
             await player.on_config_updated()
 
             # Handle protocol linking
-            # First enrich identifiers with real MAC (resolves virtual MACs via ARP)
-            await self._enrich_player_identifiers(player)
             self._evaluate_protocol_links(player)
 
             # now we're ready to signal the player is added and available
