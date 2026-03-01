@@ -1277,6 +1277,9 @@ class StreamsController(CoreController):
             last_fadeout_part = b""
         total_bytes_sent += bytes_written
         self.logger.info("Finished Queue Flow stream for Queue %s", queue.display_name)
+        # inform the queue controller that all audio data has been generated
+        # so it can handle the case where new items were added after the flow stream ended
+        self.mass.player_queues.queue_buffer_completed(queue.queue_id)
 
     async def get_announcement_stream(
         self,
