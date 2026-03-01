@@ -740,7 +740,7 @@ class PlayerController(ProtocolLinkingMixin, CoreController):
 
         # Set/clear mute lock for players in a group
         # This prevents auto-unmute when group volume changes
-        is_in_group = bool(player.state.synced_to or player.state.group_members)
+        is_in_group = bool(player.state.synced_to or player.state.active_group)
         if muted and is_in_group:
             player.extra_data[ATTR_MUTE_LOCK] = True
         elif not muted:
@@ -2678,7 +2678,6 @@ class PlayerController(ProtocolLinkingMixin, CoreController):
         has_mute_lock = player.extra_data.get(ATTR_MUTE_LOCK, False)
         if (
             not has_mute_lock
-            # use player.state here to get accumulated mute control from any linked protocol players
             and player.state.mute_control not in (PLAYER_CONTROL_NONE, PLAYER_CONTROL_FAKE)
             and player.state.volume_muted
         ):
@@ -2689,6 +2688,9 @@ class PlayerController(ProtocolLinkingMixin, CoreController):
                 player.state.name,
             )
             await self.cmd_volume_mute(player_id, False)
+
+        # always reset fake mute when controlling volume
+        player.extra_data.pop(ATTR_FAKE_MUTE, None)
 
         # Check if a plugin source is active with a volume callback
         if plugin_source := self._get_active_plugin_source(player):
