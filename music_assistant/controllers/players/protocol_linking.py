@@ -549,7 +549,24 @@ class ProtocolLinkingMixin:
             return
 
         # Link the protocols to the universal player (controller manages cross-provider state)
-        self._link_protocols_to_universal(universal_player, protocol_players)
+        # Filter out players that were already linked
+        # (e.g., via _add_protocol_to_existing_universal)
+        unlinked_players = [p for p in protocol_players if not p.protocol_parent_id]
+
+        # Split unlinked players: those that can join the main universal player
+        # vs those that got separate universal players (domain-duplicates)
+        for player in list(unlinked_players):
+            # Check if a separate universal player was created for this player
+            fallback_key = player.player_id.replace(":", "").replace("-", "").lower()
+            separate_id = f"up{fallback_key}"
+            if separate_up := self.get_player(separate_id):
+                # Link to the separate universal player instead
+                self._add_protocol_link(separate_up, player, player.provider.domain)
+                player.update_state()
+                separate_up.update_state()
+                unlinked_players.remove(player)
+
+        self._link_protocols_to_universal(universal_player, unlinked_players)
         universal_player.update_state()
 
     def _try_link_protocols_to_native(self, native_player: Player) -> None:
