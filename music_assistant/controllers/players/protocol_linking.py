@@ -972,18 +972,34 @@ class ProtocolLinkingMixin:
                     else:
                         parent_player.update_state()
         else:
-            # Native player being removed: schedule protocol evaluation for linked protocols
-            # so they can be assigned to a universal player
-            for linked in player.linked_output_protocols:
-                if protocol_player := self.get_player(linked.output_protocol_id):
+            # Native/universal player being removed: handle all linked protocol players.
+            # Collect all known protocol IDs from both active links and cached config,
+            # since cached config may contain protocols that weren't restored this session.
+            all_protocol_ids: set[str] = {
+                link.output_protocol_id for link in player.linked_output_protocols
+            }
+            all_protocol_ids.update(self._get_cached_protocol_ids(player.player_id))
+            for protocol_id in all_protocol_ids:
+                if protocol_player := self.get_player(protocol_id):
+                    # Protocol player is available: clear parent and schedule re-evaluation
+                    # so it can be matched to a new parent or a new universal player
                     protocol_player.set_protocol_parent_id(None)
                     protocol_player.update_state()
                     self.logger.debug(
-                        "Native player %s removed - scheduling evaluation for %s",
+                        "Player %s removed - scheduling evaluation for protocol %s",
                         player.player_id,
-                        protocol_player.player_id,
+                        protocol_id,
                     )
                     self._schedule_protocol_evaluation(protocol_player)
+                else:
+                    # Protocol player is not registered (unavailable/stale):
+                    # clean up its orphaned config
+                    self.logger.info(
+                        "Player %s removed - cleaning up stale protocol config %s",
+                        player.player_id,
+                        protocol_id,
+                    )
+                    self.mass.players.delete_player_config(protocol_id)
 
     def _identifiers_match(
         self, player_a: Player, player_b: Player, protocol_domain: str = ""
