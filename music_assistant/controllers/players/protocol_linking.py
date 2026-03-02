@@ -254,6 +254,46 @@ class ProtocolLinkingMixin:
                 # Link refused (domain duplicate) - try next native player
                 continue
 
+            # Final fallback: check if any already-linked protocol player on this native
+            # player shares identifiers with the new protocol player ("sibling matching").
+            # This handles native players (e.g., HEOS) that don't have their own MAC/serial
+            # identifiers but have protocol players (e.g., AirPlay) from the same device
+            # that do share identifiers with the new protocol player (e.g., Sendspin bridge).
+            if self._match_via_linked_protocols(native_player, protocol_player, protocol_domain):
+                return True
+
+        return False
+
+    def _match_via_linked_protocols(
+        self,
+        native_player: Player,
+        protocol_player: Player,
+        protocol_domain: str,
+    ) -> bool:
+        """
+        Try to match a protocol player to a native player via sibling protocol identifiers.
+
+        Check if any of the native player's already-linked protocol players share
+        identifiers with the new protocol player. This handles native players that lack
+        their own device identifiers but have sibling protocols from the same physical device.
+
+        :param native_player: The native player to potentially link to.
+        :param protocol_player: The new protocol player to link.
+        :param protocol_domain: The protocol domain of the new player.
+        :return: True if linked successfully, False if no match found.
+        """
+        for linked in native_player.linked_output_protocols:
+            linked_player = self.get_player(linked.output_protocol_id)
+            if not linked_player:
+                continue
+            if self._identifiers_match(linked_player, protocol_player, protocol_domain):
+                self._add_protocol_link(native_player, protocol_player, protocol_domain)
+                if protocol_player.protocol_parent_id:
+                    protocol_player.update_state()
+                    native_player.update_state()
+                    return True
+                # Link refused (domain duplicate) - stop checking siblings
+                break
         return False
 
     def _schedule_protocol_evaluation(self, protocol_player: Player) -> None:
@@ -308,6 +348,12 @@ class ProtocolLinkingMixin:
             return
 
         protocol_domain = protocol_player.provider.domain
+
+        # Re-try linking to an existing native/universal player.
+        # During the delay, native players may have registered and become available
+        # for matching (e.g., HEOS registers after Sendspin bridge).
+        if self._try_link_to_existing_player(protocol_player, protocol_domain):
+            return
 
         # Check if there's an existing universal player we should join
         if existing_universal := self._find_matching_universal_player(protocol_player):
@@ -599,6 +645,25 @@ class ProtocolLinkingMixin:
         # Proactively recover disabled/missing protocols from config
         # This ensures disabled protocols show up in the UI so they can be re-enabled
         self._recover_cached_protocol_links(native_player)
+
+        # Second pass: match remaining unlinked protocol players via sibling identifiers.
+        # After cache recovery, the native player has linked protocols (e.g., AirPlay)
+        # whose identifiers can be used to match new protocol players (e.g., Sendspin bridge)
+        # that share the same device identifiers but couldn't match the native player directly.
+        for protocol_player in self.all_players(return_protocol_players=True):
+            if protocol_player.state.type != PlayerType.PROTOCOL:
+                continue
+            if protocol_player.protocol_parent_id:
+                continue
+            protocol_domain = protocol_player.provider.domain
+            if self._parent_has_active_protocol_from_domain(native_player, protocol_domain):
+                continue
+            if self._match_via_linked_protocols(native_player, protocol_player, protocol_domain):
+                self.logger.debug(
+                    "Linked %s to %s via sibling protocol identifiers",
+                    protocol_player.player_id,
+                    native_player.player_id,
+                )
 
     def _check_replace_universal_player(self, native_player: Player) -> None:
         """Check if a universal player should be replaced by this native player."""

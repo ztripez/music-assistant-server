@@ -4863,3 +4863,455 @@ class TestEndToEndDuplicateProtocol:
         shared_up = controller._players[shared_up_id]
         shared_domains = {link.protocol_domain for link in shared_up.linked_output_protocols}
         assert shared_domains == {"airplay", "dlna", "chromecast"}
+
+
+class TestSiblingProtocolMatching:
+    """Tests for sibling protocol matching via _match_via_linked_protocols.
+
+    When a native player (e.g., HEOS) doesn't have its own MAC/serial identifiers
+    but has protocol players (e.g., AirPlay) already linked, a new protocol player
+    (e.g., Sendspin bridge) should be matched to the native player through the
+    shared identifiers of sibling protocols.
+    """
+
+    def test_sendspin_matches_heos_via_airplay_sibling(self, mock_mass: MagicMock) -> None:
+        """Test Sendspin links to HEOS through AirPlay's shared AIRPLAY_ID.
+
+        HEOS has no MAC/UUID identifiers. AirPlay is already linked to HEOS.
+        Sendspin has AIRPLAY_ID matching AirPlay. Sibling matching should link
+        Sendspin to HEOS.
+        """
+        controller = PlayerController(mock_mass)
+
+        # HEOS native player - no MAC, no serial, no UUID (just IP from discovery)
+        heos_provider = MockProvider("heos", mass=mock_mass)
+        heos_player = MockPlayer(
+            heos_provider,
+            "2140037800",
+            "Denon AVR-X2700H",
+            player_type=PlayerType.PLAYER,
+        )
+        heos_player._attr_supported_features = {PlayerFeature.VOLUME_SET, PlayerFeature.PLAY_MEDIA}
+        heos_player._cache.clear()
+        heos_player.set_initialized()
+
+        # AirPlay protocol player already linked to HEOS
+        ap_provider = MockProvider("airplay", mass=mock_mass)
+        ap_player = MockPlayer(
+            ap_provider,
+            "ap000678747b16",
+            "Denon AVR-X2700H (AirPlay)",
+            player_type=PlayerType.PROTOCOL,
+            identifiers={
+                IdentifierType.MAC_ADDRESS: "00:06:78:74:7B:16",
+                IdentifierType.AIRPLAY_ID: "ap000678747b16",
+            },
+        )
+        ap_player.set_initialized()
+
+        # Link AirPlay to HEOS
+        controller._players = {
+            "2140037800": heos_player,
+            "ap000678747b16": ap_player,
+        }
+        controller._player_throttlers = {k: Throttler(1, 0.05) for k in controller._players}
+        controller._add_protocol_link(heos_player, ap_player, "airplay")
+        assert ap_player.protocol_parent_id == "2140037800"
+
+        # Sendspin bridge with AIRPLAY_ID matching AirPlay
+        spb_provider = MockProvider("sendspin", mass=mock_mass)
+        spb_player = MockPlayer(
+            spb_provider,
+            "spb_000678747b16",
+            "Denon AVR-X2700H (Sendspin)",
+            player_type=PlayerType.PROTOCOL,
+            identifiers={
+                IdentifierType.MAC_ADDRESS: "00:06:78:74:7B:16",
+                IdentifierType.AIRPLAY_ID: "ap000678747b16",
+            },
+        )
+        spb_player.set_initialized()
+        controller._players["spb_000678747b16"] = spb_player
+        controller._player_throttlers["spb_000678747b16"] = Throttler(1, 0.05)
+
+        # Direct identifier match would fail (HEOS has no identifiers)
+        assert controller._identifiers_match(heos_player, spb_player, "sendspin") is False
+
+        # Sibling matching should succeed through AirPlay's identifiers
+        assert controller._match_via_linked_protocols(heos_player, spb_player, "sendspin") is True
+        assert spb_player.protocol_parent_id == "2140037800"
+
+    def test_sibling_match_no_linked_protocols(self, mock_mass: MagicMock) -> None:
+        """Test sibling matching returns False when native player has no linked protocols."""
+        controller = PlayerController(mock_mass)
+
+        heos_provider = MockProvider("heos", mass=mock_mass)
+        heos_player = MockPlayer(
+            heos_provider, "heos_1", "HEOS Player", player_type=PlayerType.PLAYER
+        )
+        heos_player.set_initialized()
+
+        spb_provider = MockProvider("sendspin", mass=mock_mass)
+        spb_player = MockPlayer(
+            spb_provider,
+            "spb_1",
+            "Sendspin",
+            player_type=PlayerType.PROTOCOL,
+            identifiers={IdentifierType.AIRPLAY_ID: "ap_1"},
+        )
+        spb_player.set_initialized()
+
+        controller._players = {"heos_1": heos_player, "spb_1": spb_player}
+        controller._player_throttlers = {k: Throttler(1, 0.05) for k in controller._players}
+
+        assert controller._match_via_linked_protocols(heos_player, spb_player, "sendspin") is False
+
+    def test_sibling_match_no_identifier_overlap(self, mock_mass: MagicMock) -> None:
+        """Test sibling matching returns False when identifiers don't overlap."""
+        controller = PlayerController(mock_mass)
+
+        heos_provider = MockProvider("heos", mass=mock_mass)
+        heos_player = MockPlayer(
+            heos_provider, "heos_1", "HEOS Player", player_type=PlayerType.PLAYER
+        )
+        heos_player.set_initialized()
+
+        # AirPlay with one MAC
+        ap_provider = MockProvider("airplay", mass=mock_mass)
+        ap_player = MockPlayer(
+            ap_provider,
+            "ap_1",
+            "AirPlay",
+            player_type=PlayerType.PROTOCOL,
+            identifiers={IdentifierType.MAC_ADDRESS: "AA:BB:CC:DD:EE:FF"},
+        )
+        ap_player.set_initialized()
+
+        controller._players = {"heos_1": heos_player, "ap_1": ap_player}
+        controller._player_throttlers = {k: Throttler(1, 0.05) for k in controller._players}
+        controller._add_protocol_link(heos_player, ap_player, "airplay")
+
+        # Sendspin with different MAC, no shared identifiers
+        spb_provider = MockProvider("sendspin", mass=mock_mass)
+        spb_player = MockPlayer(
+            spb_provider,
+            "spb_1",
+            "Sendspin",
+            player_type=PlayerType.PROTOCOL,
+            identifiers={IdentifierType.MAC_ADDRESS: "11:22:33:44:55:66"},
+        )
+        spb_player.set_initialized()
+        controller._players["spb_1"] = spb_player
+        controller._player_throttlers["spb_1"] = Throttler(1, 0.05)
+
+        assert controller._match_via_linked_protocols(heos_player, spb_player, "sendspin") is False
+        assert spb_player.protocol_parent_id is None
+
+    def test_sibling_match_refuses_duplicate_domain(self, mock_mass: MagicMock) -> None:
+        """Test sibling matching refuses link when domain is already active on native player."""
+        controller = PlayerController(mock_mass)
+
+        heos_provider = MockProvider("heos", mass=mock_mass)
+        heos_player = MockPlayer(
+            heos_provider, "heos_1", "HEOS Player", player_type=PlayerType.PLAYER
+        )
+        heos_player.set_initialized()
+
+        # AirPlay already linked
+        ap_provider = MockProvider("airplay", mass=mock_mass)
+        ap_player = MockPlayer(
+            ap_provider,
+            "ap_1",
+            "AirPlay",
+            player_type=PlayerType.PROTOCOL,
+            identifiers={IdentifierType.MAC_ADDRESS: "AA:BB:CC:DD:EE:FF"},
+        )
+        ap_player.set_initialized()
+
+        controller._players = {"heos_1": heos_player, "ap_1": ap_player}
+        controller._player_throttlers = {k: Throttler(1, 0.05) for k in controller._players}
+        controller._add_protocol_link(heos_player, ap_player, "airplay")
+
+        # Second AirPlay instance with same MAC - should be refused (duplicate domain)
+        ap2 = MockPlayer(
+            ap_provider,
+            "ap_2",
+            "AirPlay 2",
+            player_type=PlayerType.PROTOCOL,
+            identifiers={IdentifierType.MAC_ADDRESS: "AA:BB:CC:DD:EE:FF"},
+        )
+        ap2.set_initialized()
+        controller._players["ap_2"] = ap2
+        controller._player_throttlers["ap_2"] = Throttler(1, 0.05)
+
+        assert controller._match_via_linked_protocols(heos_player, ap2, "airplay") is False
+        assert ap2.protocol_parent_id is None
+
+    def test_try_link_to_existing_uses_sibling_matching(self, mock_mass: MagicMock) -> None:
+        """Test _try_link_to_existing_player falls back to sibling matching."""
+        controller = PlayerController(mock_mass)
+
+        # No cached protocol IDs for HEOS
+        mock_mass.config.get = MagicMock(return_value=[])
+
+        heos_provider = MockProvider("heos", mass=mock_mass)
+        heos_player = MockPlayer(
+            heos_provider,
+            "2140037800",
+            "Denon AVR-X2700H",
+            player_type=PlayerType.PLAYER,
+        )
+        heos_player.set_initialized()
+
+        ap_provider = MockProvider("airplay", mass=mock_mass)
+        ap_player = MockPlayer(
+            ap_provider,
+            "ap000678747b16",
+            "Denon AirPlay",
+            player_type=PlayerType.PROTOCOL,
+            identifiers={IdentifierType.AIRPLAY_ID: "ap000678747b16"},
+        )
+        ap_player.set_initialized()
+
+        controller._players = {
+            "2140037800": heos_player,
+            "ap000678747b16": ap_player,
+        }
+        controller._player_throttlers = {k: Throttler(1, 0.05) for k in controller._players}
+        controller._add_protocol_link(heos_player, ap_player, "airplay")
+
+        # Sendspin with matching AIRPLAY_ID
+        spb_provider = MockProvider("sendspin", mass=mock_mass)
+        spb_player = MockPlayer(
+            spb_provider,
+            "spb_000678747b16",
+            "Denon Sendspin",
+            player_type=PlayerType.PROTOCOL,
+            identifiers={IdentifierType.AIRPLAY_ID: "ap000678747b16"},
+        )
+        spb_player.set_initialized()
+        controller._players["spb_000678747b16"] = spb_player
+        controller._player_throttlers["spb_000678747b16"] = Throttler(1, 0.05)
+
+        # _try_link_to_existing_player should succeed via sibling matching
+        result = controller._try_link_to_existing_player(spb_player, "sendspin")
+        assert result is True
+        assert spb_player.protocol_parent_id == "2140037800"
+
+
+class TestDelayedEvalRetry:
+    """Tests for the retry of _try_link_to_existing_player in _delayed_protocol_evaluation.
+
+    When a protocol player's delayed evaluation fires, native players may have
+    registered during the delay period. The retry ensures they are checked before
+    falling through to universal player creation.
+    """
+
+    @pytest.mark.asyncio
+    async def test_delayed_eval_links_to_native_registered_during_delay(
+        self, mock_mass: MagicMock
+    ) -> None:
+        """Test delayed eval links to a native player that registered during the delay.
+
+        Scenario: Sendspin registers before HEOS. The delayed evaluation fires
+        after HEOS has registered and has AirPlay linked. The retry should find
+        HEOS via sibling matching and link Sendspin.
+        """
+        controller, _ = TestEndToEndDuplicateProtocol._setup_e2e_controller(mock_mass)
+
+        # No cached protocol IDs
+        mock_mass.config.get = MagicMock(return_value=[])
+
+        # HEOS native player (no device identifiers)
+        heos_provider = MockProvider("heos", mass=mock_mass)
+        heos_player = MockPlayer(
+            heos_provider,
+            "2140037800",
+            "Denon AVR-X2700H",
+            player_type=PlayerType.PLAYER,
+        )
+        heos_player._attr_supported_features = {PlayerFeature.VOLUME_SET, PlayerFeature.PLAY_MEDIA}
+        heos_player._cache.clear()
+        heos_player.set_initialized()
+
+        # AirPlay already linked to HEOS
+        ap_provider = MockProvider("airplay", mass=mock_mass)
+        ap_player = MockPlayer(
+            ap_provider,
+            "ap000678747b16",
+            "Denon AirPlay",
+            player_type=PlayerType.PROTOCOL,
+            identifiers={
+                IdentifierType.MAC_ADDRESS: "00:06:78:74:7B:16",
+                IdentifierType.AIRPLAY_ID: "ap000678747b16",
+            },
+        )
+        ap_player.set_initialized()
+        ap_player.set_protocol_parent_id("2140037800")
+
+        # Sendspin (not yet linked)
+        spb_provider = MockProvider("sendspin", mass=mock_mass)
+        spb_player = MockPlayer(
+            spb_provider,
+            "spb_000678747b16",
+            "Denon Sendspin",
+            player_type=PlayerType.PROTOCOL,
+            identifiers={
+                IdentifierType.MAC_ADDRESS: "00:06:78:74:7B:16",
+                IdentifierType.AIRPLAY_ID: "ap000678747b16",
+            },
+        )
+        spb_player.set_initialized()
+
+        # Set up players dict (simulating: HEOS registered during the delay)
+        controller._players = {
+            "2140037800": heos_player,
+            "ap000678747b16": ap_player,
+            "spb_000678747b16": spb_player,
+        }
+        controller._player_throttlers = {k: Throttler(1, 0.05) for k in controller._players}
+
+        # Link AirPlay to HEOS
+        controller._add_protocol_link(heos_player, ap_player, "airplay")
+
+        # Run delayed evaluation for Sendspin
+        await controller._delayed_protocol_evaluation("spb_000678747b16")
+
+        # Sendspin should be linked to HEOS, not a new universal player
+        assert spb_player.protocol_parent_id == "2140037800"
+
+    @pytest.mark.asyncio
+    async def test_delayed_eval_skips_already_linked(self, mock_mass: MagicMock) -> None:
+        """Test delayed eval returns early if protocol player was linked during the delay."""
+        controller, _ = TestEndToEndDuplicateProtocol._setup_e2e_controller(mock_mass)
+
+        spb_provider = MockProvider("sendspin", mass=mock_mass)
+        spb_player = MockPlayer(
+            spb_provider,
+            "spb_1",
+            "Sendspin",
+            player_type=PlayerType.PROTOCOL,
+            identifiers={IdentifierType.AIRPLAY_ID: "ap_1"},
+        )
+        spb_player.set_initialized()
+        # Simulate it was linked during the delay
+        spb_player.set_protocol_parent_id("some_parent")
+
+        controller._players = {"spb_1": spb_player}
+        controller._player_throttlers = {"spb_1": Throttler(1, 0.05)}
+
+        # Should return early without creating universal player
+        await controller._delayed_protocol_evaluation("spb_1")
+        assert spb_player.protocol_parent_id == "some_parent"
+
+
+class TestNativePlayerSiblingLinking:
+    """Tests for the second pass in _try_link_protocols_to_native using sibling matching.
+
+    After a native player registers and recovers cached protocol links, the second
+    pass should match remaining unlinked protocol players via sibling identifiers.
+    """
+
+    def test_native_registration_links_sendspin_via_sibling(self, mock_mass: MagicMock) -> None:
+        """Test HEOS registration links Sendspin via AirPlay sibling identifiers.
+
+        Scenario: Sendspin registered before HEOS. When HEOS registers, the first
+        pass can't match Sendspin (no direct identifiers). After recovering cached
+        AirPlay link, the second pass matches Sendspin via AirPlay's AIRPLAY_ID.
+        """
+        controller = PlayerController(mock_mass)
+
+        # Set up config to return cached AirPlay link for HEOS
+        def config_get_side_effect(key: str, default: object = None) -> object:
+            if key == "players/2140037800/values/linked_protocol_ids":
+                return ["ap000678747b16"]
+            if key == "players/ap000678747b16":
+                return {
+                    "provider": "airplay--test",
+                    "player_type": "protocol",
+                    "values": {"protocol_parent_id": "2140037800"},
+                }
+            if key == "players":
+                return {
+                    "ap000678747b16": {
+                        "provider": "airplay--test",
+                        "player_type": "protocol",
+                        "values": {"protocol_parent_id": "2140037800"},
+                    },
+                    "spb_000678747b16": {
+                        "provider": "sendspin--test",
+                        "player_type": "protocol",
+                        "values": {},
+                    },
+                }
+            return default
+
+        mock_mass.config.get = MagicMock(side_effect=config_get_side_effect)
+        mock_mass.get_provider = MagicMock(return_value=None)
+
+        # AirPlay protocol player (already registered, waiting for parent)
+        ap_provider = MockProvider("airplay", mass=mock_mass)
+        ap_player = MockPlayer(
+            ap_provider,
+            "ap000678747b16",
+            "Denon AirPlay",
+            player_type=PlayerType.PROTOCOL,
+            identifiers={
+                IdentifierType.MAC_ADDRESS: "00:06:78:74:7B:16",
+                IdentifierType.AIRPLAY_ID: "ap000678747b16",
+            },
+        )
+        ap_player.set_initialized()
+        # AirPlay has cached parent set but parent hasn't registered yet
+        ap_player.set_protocol_parent_id("2140037800")
+
+        # Sendspin (registered, not linked)
+        spb_provider = MockProvider("sendspin", mass=mock_mass)
+        spb_player = MockPlayer(
+            spb_provider,
+            "spb_000678747b16",
+            "Denon Sendspin",
+            player_type=PlayerType.PROTOCOL,
+            identifiers={
+                IdentifierType.MAC_ADDRESS: "00:06:78:74:7B:16",
+                IdentifierType.AIRPLAY_ID: "ap000678747b16",
+            },
+        )
+        spb_player.set_initialized()
+
+        # HEOS native player registers now
+        heos_provider = MockProvider("heos", mass=mock_mass)
+        heos_player = MockPlayer(
+            heos_provider,
+            "2140037800",
+            "Denon AVR-X2700H",
+            player_type=PlayerType.PLAYER,
+        )
+        heos_player._attr_supported_features = {PlayerFeature.VOLUME_SET, PlayerFeature.PLAY_MEDIA}
+        heos_player._cache.clear()
+        heos_player.set_initialized()
+
+        controller._players = {
+            "ap000678747b16": ap_player,
+            "spb_000678747b16": spb_player,
+            "2140037800": heos_player,
+        }
+        controller._player_throttlers = {k: Throttler(1, 0.05) for k in controller._players}
+
+        # Simulate what happens when HEOS registers
+        controller._try_link_protocols_to_native(heos_player)
+
+        # AirPlay should be recovered from cache (linked_output_protocols)
+        airplay_linked = any(
+            link.output_protocol_id == "ap000678747b16"
+            for link in heos_player.linked_output_protocols
+        )
+        assert airplay_linked, "AirPlay should be recovered from cached protocol links"
+
+        # Sendspin should be linked via sibling matching (second pass)
+        assert spb_player.protocol_parent_id == "2140037800"
+        sendspin_linked = any(
+            link.output_protocol_id == "spb_000678747b16"
+            for link in heos_player.linked_output_protocols
+        )
+        assert sendspin_linked, "Sendspin should be linked via sibling protocol matching"
