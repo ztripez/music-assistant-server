@@ -121,7 +121,10 @@ class ChromecastPlayer(Player):
             mz_controller = MultizoneController(cast_info.uuid)
             self.cc.register_handler(mz_controller)
             self.mz_controller = mz_controller
-        self.cc.start()
+
+    async def async_setup(self) -> None:
+        """Start the chromecast socket client (must be called after __init__)."""
+        await asyncio.to_thread(self.cc.start)
 
     @staticmethod
     def _is_google_device(cast_info: ChromecastInfo) -> bool:
@@ -187,7 +190,7 @@ class ChromecastPlayer(Player):
             self._attr_active_source = None
             await asyncio.to_thread(self.cc.quit_app)
         # optimistically update the state
-        self.mass.loop.call_soon_threadsafe(self.update_state)
+        self.update_state()
 
     async def volume_set(self, volume_level: int) -> None:
         """Send VOLUME_SET command to given player."""
@@ -267,12 +270,18 @@ class ChromecastPlayer(Player):
     async def on_unload(self) -> None:
         """Handle logic when the player is unloaded from the Player controller."""
         await super().on_unload()
-        self.logger.debug("Disconnecting from chromecast socket %s", self.display_name)
-        await self.mass.loop.run_in_executor(None, self.cc.disconnect, 10)
         self.mz_controller = None
         if self.status_listener is not None:
             self.status_listener.invalidate()
         self.status_listener = None
+        self.logger.debug("Disconnecting from chromecast socket %s", self.display_name)
+        if self.mass.closing:
+            # Non-blocking disconnect: close socket, don't wait for thread.
+            # Socket threads are daemon threads and die on process exit.
+            # Blocking disconnect can stall shutdown if threads are slow to exit.
+            self.cc.disconnect(blocking=False)
+        else:
+            await asyncio.to_thread(self.cc.disconnect, 10)
 
     def _on_player_media_updated(self) -> None:
         """Handle callback when the current media of the player is updated."""
@@ -386,14 +395,27 @@ class ChromecastPlayer(Player):
             )
 
         await self.mass.loop.run_in_executor(None, launch)
-        await event.wait()
+        try:
+            await asyncio.wait_for(event.wait(), timeout=30.0)
+        except TimeoutError:
+            self.logger.warning("Timed out waiting for app launch on %s", self.display_name)
+            raise PlayerUnavailableError(
+                f"Timed out launching app on {self.display_name}"
+            ) from None
 
     ### Callbacks from Chromecast Statuslistener
 
     def on_new_cast_status(self, status: CastStatus) -> None:
-        """Handle updated CastStatus."""
-        if status is None:
-            return  # guard
+        """Handle updated CastStatus (called from pychromecast socket thread)."""
+        if status is None or self.mass.closing:
+            return
+        # Dispatch to event loop for thread-safe attribute mutation
+        self.mass.loop.call_soon_threadsafe(self._handle_cast_status, status)
+
+    def _handle_cast_status(self, status: CastStatus) -> None:
+        """Process CastStatus on the event loop thread."""
+        if self.mass.closing:
+            return
         self.logger.log(
             VERBOSE_LOG_LEVEL,
             "Received cast status for %s - app_id: %s - volume: %s",
@@ -428,11 +450,18 @@ class ChromecastPlayer(Player):
             # group is being powered off, update group childs
             for child_id in self.group_members:
                 if child := self.mass.players.get_player(child_id):
-                    self.mass.loop.call_soon_threadsafe(child.update_state)
-        self.mass.loop.call_soon_threadsafe(self.update_state)
+                    child.update_state()
+        self.update_state()
 
-    def on_new_media_status(self, status: MediaStatus) -> None:  # noqa: PLR0915
-        """Handle updated MediaStatus."""
+    def on_new_media_status(self, status: MediaStatus) -> None:
+        """Handle updated MediaStatus (called from pychromecast socket thread)."""
+        if self.mass.closing:
+            return
+        # Dispatch to event loop for thread-safe attribute mutation
+        self.mass.loop.call_soon_threadsafe(self._handle_media_status, status)
+
+    def _handle_media_status(self, status: MediaStatus) -> None:  # noqa: PLR0915
+        """Process MediaStatus on the event loop thread."""
         self.logger.log(
             VERBOSE_LOG_LEVEL,
             "Received media status for %s update: %s",
@@ -520,11 +549,18 @@ class ChromecastPlayer(Player):
                     child._attr_elapsed_time = self._attr_elapsed_time
                     child._attr_elapsed_time_last_updated = self._attr_elapsed_time_last_updated
                     child._attr_active_source = self.active_source
-                    self.mass.loop.call_soon_threadsafe(child.update_state)
-        self.mass.loop.call_soon_threadsafe(self.update_state)
+                    child.update_state()
+        self.update_state()
 
     def on_new_connection_status(self, status: ConnectionStatus) -> None:
-        """Handle updated ConnectionStatus."""
+        """Handle updated ConnectionStatus (called from pychromecast socket thread)."""
+        if self.mass.closing:
+            return
+        # Dispatch to event loop for thread-safe attribute mutation
+        self.mass.loop.call_soon_threadsafe(self._handle_connection_status, status)
+
+    def _handle_connection_status(self, status: ConnectionStatus) -> None:
+        """Process ConnectionStatus on the event loop thread."""
         self.logger.log(
             VERBOSE_LOG_LEVEL,
             "Received connection status update for %s - status: %s",
@@ -534,7 +570,7 @@ class ChromecastPlayer(Player):
 
         if status.status == CONNECTION_STATUS_DISCONNECTED:
             self._attr_available = False
-            self.mass.loop.call_soon_threadsafe(self.update_state)
+            self.update_state()
             return
 
         new_available = status.status == CONNECTION_STATUS_CONNECTED
@@ -557,7 +593,7 @@ class ChromecastPlayer(Player):
                 self._attr_device_info.add_identifier(
                     IdentifierType.MAC_ADDRESS, self.cast_info.mac_address
                 )
-            self.mass.loop.call_soon_threadsafe(self.update_state)
+            self.update_state()
 
             if new_available and self.type == PlayerType.PLAYER:
                 # Poll current group status
