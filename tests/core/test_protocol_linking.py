@@ -245,8 +245,8 @@ class TestIdentifiersMatch:
         # These should NOT match - they differ in more than just the locally-administered bit
         assert controller._identifiers_match(player_a, player_b) is False
 
-    def test_ip_address_no_match(self, mock_mass: MagicMock) -> None:
-        """Test that IP addresses don't match (IP is excluded as it's not stable)."""
+    def test_ip_address_fallback_with_no_mac(self, mock_mass: MagicMock) -> None:
+        """Test that same IP matches when no MAC is available (ARP couldn't help)."""
         controller = PlayerController(mock_mass)
 
         provider = MockProvider("test")
@@ -263,8 +263,8 @@ class TestIdentifiersMatch:
             identifiers={IdentifierType.IP_ADDRESS: "192.168.1.100"},
         )
 
-        # IP address matching is intentionally disabled to prevent false matches
-        assert controller._identifiers_match(player_a, player_b) is False
+        # Same IP with no MAC at all = match (likely same device, ARP unavailable)
+        assert controller._identifiers_match(player_a, player_b) is True
 
     def test_sonos_uuid_dlna_suffix_match(self, mock_mass: MagicMock) -> None:
         """Test Sonos UUID matching with DLNA _MR suffix."""
@@ -412,6 +412,120 @@ class TestIdentifiersMatch:
             "Device B",
             player_type=PlayerType.PROTOCOL,
             identifiers={IdentifierType.AIRPLAY_ID: "apaabbccddeeff"},
+        )
+
+        assert controller._identifiers_match(player_a, player_b) is False
+
+    def test_ip_fallback_with_la_mac(self, mock_mass: MagicMock) -> None:
+        """Test IP fallback matching when one player has a locally-administered MAC."""
+        controller = PlayerController(mock_mass)
+
+        provider = MockProvider("test")
+        player_a = MockPlayer(
+            provider,
+            "player_a",
+            "AirPlay Device",
+            player_type=PlayerType.PROTOCOL,
+            identifiers={
+                IdentifierType.MAC_ADDRESS: "C0:F5:35:7B:6D:A0",
+                IdentifierType.IP_ADDRESS: "192.168.1.48",
+            },
+        )
+        player_b = MockPlayer(
+            provider,
+            "player_b",
+            "DLNA Device",
+            player_type=PlayerType.PROTOCOL,
+            identifiers={
+                # Locally-administered MAC from ARP (device uses MAC randomization)
+                IdentifierType.MAC_ADDRESS: "02:4E:52:A1:BC:6B",
+                IdentifierType.IP_ADDRESS: "192.168.1.48",
+            },
+        )
+
+        assert controller._identifiers_match(player_a, player_b) is True
+
+    def test_ip_fallback_with_missing_mac(self, mock_mass: MagicMock) -> None:
+        """Test IP fallback matching when one player has no MAC at all."""
+        controller = PlayerController(mock_mass)
+
+        provider = MockProvider("test")
+        player_a = MockPlayer(
+            provider,
+            "player_a",
+            "AirPlay Device",
+            player_type=PlayerType.PROTOCOL,
+            identifiers={
+                IdentifierType.MAC_ADDRESS: "C0:F5:35:7B:6D:A0",
+                IdentifierType.IP_ADDRESS: "192.168.1.48",
+            },
+        )
+        player_b = MockPlayer(
+            provider,
+            "player_b",
+            "DLNA Device",
+            player_type=PlayerType.PROTOCOL,
+            identifiers={
+                IdentifierType.IP_ADDRESS: "192.168.1.48",
+            },
+        )
+
+        assert controller._identifiers_match(player_a, player_b) is True
+
+    def test_ip_no_fallback_with_real_macs(self, mock_mass: MagicMock) -> None:
+        """Test that IP alone does NOT match when both players have real (non-LA) MACs."""
+        controller = PlayerController(mock_mass)
+
+        provider = MockProvider("test")
+        player_a = MockPlayer(
+            provider,
+            "player_a",
+            "Device A",
+            player_type=PlayerType.PROTOCOL,
+            identifiers={
+                IdentifierType.MAC_ADDRESS: "C0:F5:35:7B:6D:A0",
+                IdentifierType.IP_ADDRESS: "192.168.1.48",
+            },
+        )
+        player_b = MockPlayer(
+            provider,
+            "player_b",
+            "Device B",
+            player_type=PlayerType.PROTOCOL,
+            identifiers={
+                # A8 first octet = 10101000, LA bit (0x02) is clear → real MAC
+                IdentifierType.MAC_ADDRESS: "A8:BB:CC:DD:EE:FF",
+                IdentifierType.IP_ADDRESS: "192.168.1.48",
+            },
+        )
+
+        # Both have real MACs that don't match - IP should NOT be used as fallback
+        assert controller._identifiers_match(player_a, player_b) is False
+
+    def test_ip_no_fallback_different_ips(self, mock_mass: MagicMock) -> None:
+        """Test that different IPs don't match even with LA MAC."""
+        controller = PlayerController(mock_mass)
+
+        provider = MockProvider("test")
+        player_a = MockPlayer(
+            provider,
+            "player_a",
+            "Device A",
+            player_type=PlayerType.PROTOCOL,
+            identifiers={
+                IdentifierType.MAC_ADDRESS: "C0:F5:35:7B:6D:A0",
+                IdentifierType.IP_ADDRESS: "192.168.1.48",
+            },
+        )
+        player_b = MockPlayer(
+            provider,
+            "player_b",
+            "Device B",
+            player_type=PlayerType.PROTOCOL,
+            identifiers={
+                IdentifierType.MAC_ADDRESS: "02:4E:52:A1:BC:6B",
+                IdentifierType.IP_ADDRESS: "192.168.1.99",
+            },
         )
 
         assert controller._identifiers_match(player_a, player_b) is False
@@ -3760,8 +3874,8 @@ class TestDuplicateProtocolPrevention:
         assert dlna1.protocol_parent_id == "sonos_1"
         assert len(sonos_player.linked_output_protocols) == 2
 
-    def test_add_protocol_link_allows_replacing_inactive_domain(self, mock_mass: MagicMock) -> None:
-        """Test that a new link can replace one from the same domain if old one is inactive."""
+    def test_add_protocol_link_allows_replacing_removed_player(self, mock_mass: MagicMock) -> None:
+        """Test that a new link can replace a stale one after the old player is removed."""
         controller = PlayerController(mock_mass)
 
         sonos_provider = MockProvider("sonos")
@@ -3810,14 +3924,65 @@ class TestDuplicateProtocolPrevention:
         controller._add_protocol_link(sonos_player, ap1, "airplay")
         assert ap1.protocol_parent_id == "sonos_1"
 
-        # Make first AirPlay unavailable (simulates disconnection)
-        ap1._attr_available = False
-        ap1._cache.clear()
-        ap1.update_state(signal_event=False)
+        # Remove first AirPlay from registry (provider cleaned up stale player)
+        del controller._players["ap_1"]
 
-        # Link second AirPlay - should succeed since first is inactive
+        # Link second AirPlay - should succeed since first was removed
         controller._add_protocol_link(sonos_player, ap2, "airplay")
         assert ap2.protocol_parent_id == "sonos_1"
+
+    def test_add_protocol_link_blocks_when_existing_still_registered(
+        self, mock_mass: MagicMock
+    ) -> None:
+        """Test that a new link is blocked when the old player is still registered."""
+        controller = PlayerController(mock_mass)
+
+        sonos_provider = MockProvider("sonos")
+        sonos_player = MockPlayer(
+            sonos_provider, "sonos_1", "Sonos Speaker", player_type=PlayerType.PLAYER
+        )
+
+        snap_provider = MockProvider("snapcast")
+        snap1 = MockPlayer(
+            snap_provider,
+            "snap_1",
+            "Snapcast 1",
+            player_type=PlayerType.PROTOCOL,
+            identifiers={IdentifierType.MAC_ADDRESS: "D0:11:E5:00:67:2F"},
+        )
+        snap2 = MockPlayer(
+            snap_provider,
+            "snap_2",
+            "Snapcast 2",
+            player_type=PlayerType.PROTOCOL,
+            identifiers={IdentifierType.MAC_ADDRESS: "D0:11:E5:00:67:2F"},
+        )
+
+        # Both unavailable
+        snap1._attr_available = False
+        snap1._cache.clear()
+        snap1.update_state(signal_event=False)
+        snap2._attr_available = False
+        snap2._cache.clear()
+        snap2.update_state(signal_event=False)
+
+        controller._players = {
+            "sonos_1": sonos_player,
+            "snap_1": snap1,
+            "snap_2": snap2,
+        }
+        controller._player_throttlers = {k: Throttler(1, 0.05) for k in controller._players}
+        snap1.set_initialized()
+        snap2.set_initialized()
+        sonos_player.set_initialized()
+
+        # Link first snapcast
+        controller._add_protocol_link(sonos_player, snap1, "snapcast")
+        assert snap1.protocol_parent_id == "sonos_1"
+
+        # Try to link second snapcast - should be BLOCKED (snap1 still registered)
+        controller._add_protocol_link(sonos_player, snap2, "snapcast")
+        assert snap2.protocol_parent_id is None
 
     def test_try_link_protocol_to_native_skips_duplicate_domain(self, mock_mass: MagicMock) -> None:
         """Test that _try_link_protocol_to_native falls through when domain is duplicate."""
@@ -4780,6 +4945,96 @@ class TestEndToEndDuplicateProtocol:
         for pid in parent_ids:
             assert pid in controller._players
             assert isinstance(controller._players[pid], UniversalPlayer)
+
+    @pytest.mark.asyncio
+    async def test_same_domain_same_ip_get_separate_universals(self, mock_mass: MagicMock) -> None:
+        """Test that multiple instances of the same protocol on the same host stay separate.
+
+        Scenario: 3 shairport-sync AirPlay instances on the same Raspberry Pi.
+        All share the same IP and have locally-administered MACs.
+        The IP fallback must NOT merge them — domain dedup takes precedence.
+        """
+        controller, _ = self._setup_e2e_controller(mock_mass)
+
+        ap_provider = MockProvider("airplay", mass=mock_mass)
+        players = []
+        for i in range(1, 4):
+            p = MockPlayer(
+                ap_provider,
+                f"ap_{i}",
+                f"Shairport Zone {i}",
+                player_type=PlayerType.PROTOCOL,
+                identifiers={
+                    # Each has a distinct LA MAC (as shairport-sync generates)
+                    IdentifierType.MAC_ADDRESS: f"02:AA:BB:CC:DD:{i:02X}",
+                    IdentifierType.IP_ADDRESS: "192.168.1.10",
+                },
+            )
+            p.set_initialized()
+            players.append(p)
+
+        controller._players = {p.player_id: p for p in players}
+        controller._player_throttlers = {k: Throttler(1, 0.05) for k in controller._players}
+
+        for p in players:
+            await controller._delayed_protocol_evaluation(p.player_id)
+
+        # Each should have its own universal player (NOT merged)
+        parent_ids = {p.protocol_parent_id for p in players}
+        assert None not in parent_ids
+        assert len(parent_ids) == 3
+
+    @pytest.mark.asyncio
+    async def test_same_domain_same_mac_get_separate_universals(self, mock_mass: MagicMock) -> None:
+        """Test that two snapcast instances with the same ARP-resolved MAC stay separate.
+
+        Scenario: Two snapcast clients on the same Mac mini. Both have distinct
+        locally-administered MACs but ARP resolves both to the same real hardware MAC.
+        They should each get their own universal player, not be merged.
+        """
+        controller, _ = self._setup_e2e_controller(mock_mass)
+
+        snap_provider = MockProvider("snapcast", mass=mock_mass)
+        snap1 = MockPlayer(
+            snap_provider,
+            "ma_cea0b4ed2221",
+            "Mac-mini-15269.local",
+            player_type=PlayerType.PROTOCOL,
+            identifiers={
+                # ARP-enriched: both resolve to same real MAC
+                IdentifierType.MAC_ADDRESS: "D0:11:E5:00:67:2F",
+                IdentifierType.IP_ADDRESS: "192.168.1.42",
+            },
+        )
+        snap2 = MockPlayer(
+            snap_provider,
+            "ma_cea0b4ed2220",
+            "Mac-mini-63197.local",
+            player_type=PlayerType.PROTOCOL,
+            identifiers={
+                IdentifierType.MAC_ADDRESS: "D0:11:E5:00:67:2F",
+                IdentifierType.IP_ADDRESS: "192.168.1.42",
+            },
+        )
+        snap1._attr_available = False
+        snap1._cache.clear()
+        snap1.update_state(signal_event=False)
+        snap2._attr_available = False
+        snap2._cache.clear()
+        snap2.update_state(signal_event=False)
+        snap1.set_initialized()
+        snap2.set_initialized()
+
+        controller._players = {"ma_cea0b4ed2221": snap1, "ma_cea0b4ed2220": snap2}
+        controller._player_throttlers = {k: Throttler(1, 0.05) for k in controller._players}
+
+        await controller._delayed_protocol_evaluation("ma_cea0b4ed2221")
+        await controller._delayed_protocol_evaluation("ma_cea0b4ed2220")
+
+        # Each should have its own universal player
+        assert snap1.protocol_parent_id is not None
+        assert snap2.protocol_parent_id is not None
+        assert snap1.protocol_parent_id != snap2.protocol_parent_id
 
     @pytest.mark.asyncio
     async def test_mixed_protocols_plus_duplicate_creates_correct_topology(
