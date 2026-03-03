@@ -2635,23 +2635,19 @@ class PlayerQueuesController(CoreController):
                 return current_item_id
             return None
         # try to extract the item id from a mass stream url
+        # URL format: {base_url}/{mode}/{session_id}/{queue_id}/{queue_item_id}/{player_id}.{fmt}
+        base_url = self.mass.streams.base_url
         if (
             protocol_player.current_media.uri
-            and queue_id in protocol_player.current_media.uri
-            and self.mass.streams.base_url in protocol_player.current_media.uri
+            and base_url
+            and protocol_player.current_media.uri.startswith(base_url)
         ):
-            current_item_id = protocol_player.current_media.uri.rsplit("/")[-1].split(".")[0]
-            if self.get_item(queue_id, current_item_id):
-                return current_item_id
-        # try to extract the item id from a queue_id/item_id combi
-        if (
-            protocol_player.current_media.uri
-            and queue_id in protocol_player.current_media.uri
-            and "/" in protocol_player.current_media.uri
-        ):
-            current_item_id = protocol_player.current_media.uri.split("/")[1]
-            if self.get_item(queue_id, current_item_id):
-                return current_item_id
+            path_parts = protocol_player.current_media.uri[len(base_url) :].strip("/").split("/")
+            # path_parts: [mode, session_id, queue_id, queue_item_id, player_id.fmt]
+            if len(path_parts) >= 5:
+                current_item_id = path_parts[3]
+                if self.get_item(queue_id, current_item_id):
+                    return current_item_id
 
         return None
 
