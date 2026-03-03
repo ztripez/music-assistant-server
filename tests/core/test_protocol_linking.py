@@ -472,8 +472,13 @@ class TestIdentifiersMatch:
 
         assert controller._identifiers_match(player_a, player_b) is True
 
-    def test_ip_no_fallback_with_real_macs(self, mock_mass: MagicMock) -> None:
-        """Test that IP alone does NOT match when both players have real (non-LA) MACs."""
+    def test_ip_fallback_protocol_players_with_real_macs(self, mock_mass: MagicMock) -> None:
+        """Test that IP matches protocol players even when both have real MACs.
+
+        Some devices (e.g., Yamaha MusicCast) report different valid globally-unique
+        MACs per protocol (DLNA vs AirPlay differ by 1 in the last octet).
+        IP matching is safe here because two devices on a LAN can't share an IP.
+        """
         controller = PlayerController(mock_mass)
 
         provider = MockProvider("test")
@@ -493,13 +498,42 @@ class TestIdentifiersMatch:
             "Device B",
             player_type=PlayerType.PROTOCOL,
             identifiers={
-                # A8 first octet = 10101000, LA bit (0x02) is clear → real MAC
+                # A8 first octet = 10101000, LA bit (0x02) is clear -> real MAC
                 IdentifierType.MAC_ADDRESS: "A8:BB:CC:DD:EE:FF",
                 IdentifierType.IP_ADDRESS: "192.168.1.48",
             },
         )
 
-        # Both have real MACs that don't match - IP should NOT be used as fallback
+        # Protocol players with real MACs on same IP -> match (same physical device)
+        assert controller._identifiers_match(player_a, player_b) is True
+
+    def test_ip_no_fallback_native_players_with_real_macs(self, mock_mass: MagicMock) -> None:
+        """Test that IP alone does NOT match two native PLAYER-type players with real MACs."""
+        controller = PlayerController(mock_mass)
+
+        provider = MockProvider("test")
+        player_a = MockPlayer(
+            provider,
+            "player_a",
+            "Device A",
+            player_type=PlayerType.PLAYER,
+            identifiers={
+                IdentifierType.MAC_ADDRESS: "C0:F5:35:7B:6D:A0",
+                IdentifierType.IP_ADDRESS: "192.168.1.48",
+            },
+        )
+        player_b = MockPlayer(
+            provider,
+            "player_b",
+            "Device B",
+            player_type=PlayerType.PLAYER,
+            identifiers={
+                IdentifierType.MAC_ADDRESS: "A8:BB:CC:DD:EE:FF",
+                IdentifierType.IP_ADDRESS: "192.168.1.48",
+            },
+        )
+
+        # Two native players with real MACs that don't match - IP should NOT be used
         assert controller._identifiers_match(player_a, player_b) is False
 
     def test_ip_no_fallback_different_ips(self, mock_mass: MagicMock) -> None:

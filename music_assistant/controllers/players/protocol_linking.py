@@ -1120,10 +1120,17 @@ class ProtocolLinkingMixin:
                 if val_a_norm.endswith("_mr") and val_a_norm[:-3] == val_b_norm:
                     return True
 
-        # Last resort: IP-based matching for devices with MAC randomization.
-        # Some devices use a random locally-administered MAC on the network, so ARP
-        # returns a useless address. When at least one player has an LA MAC (or no MAC)
-        # and both share the same IP, they're very likely the same physical device.
+        # Last resort: IP-based matching.
+        # Two players on the same IP are very likely the same physical device.
+        # This handles two cases:
+        # 1. MAC randomization: at least one player has no real MAC (LA or missing),
+        #    so ARP couldn't resolve a usable address.
+        # 2. Different MACs per protocol: some devices (e.g., Yamaha MusicCast) report
+        #    different valid globally-unique MACs per protocol (DLNA vs AirPlay differ
+        #    by 1 in the last octet). IP matching is safe here because two different
+        #    devices on a LAN cannot share the same IP simultaneously.
+        #    To avoid false positives between unrelated native players, this path
+        #    requires at least one player to be a protocol or universal player.
         ip_a = identifiers_a.get(IdentifierType.IP_ADDRESS)
         ip_b = identifiers_b.get(IdentifierType.IP_ADDRESS)
         if ip_a and ip_b and ip_a == ip_b:
@@ -1139,7 +1146,19 @@ class ProtocolLinkingMixin:
                 and is_valid_mac_address(mac_b)
                 and not is_locally_administered_mac(mac_b)
             )
+            # Case 1: at least one player has no real hardware MAC
             if not (a_is_real and b_is_real):
+                return True
+            # Case 2: both have real MACs but at least one is a protocol/universal player
+            a_is_protocol = (
+                player_a.type == PlayerType.PROTOCOL
+                or player_a.provider.domain == "universal_player"
+            )
+            b_is_protocol = (
+                player_b.type == PlayerType.PROTOCOL
+                or player_b.provider.domain == "universal_player"
+            )
+            if a_is_protocol or b_is_protocol:
                 return True
 
         return False
